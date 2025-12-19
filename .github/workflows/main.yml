@@ -116,24 +116,27 @@ jobs:
           
     - name: Build x264 with MSVC (关键修复：生成MSVC格式库)
       if: steps.cache-x264-build.outputs.cache-hit != 'true'
-      shell: cmd
+      shell: msys2 {0}
       run: |
-        cd %WORKSPACE%\x264
-        :: 清理旧产物
-        make clean 2>nul || true
-        rmdir /s /q build 2>nul || true
-        mkdir build && cd build
+        cd "$WORKSPACE/x264"
         
-        :: 使用cmake生成MSVC工程（核心：适配MSVC）
-        cmake .. -G "Visual Studio 17 2022" -A x64 ^
-          -DCMAKE_INSTALL_PREFIX=%X264_INSTALL% ^
-          -DENABLE_SHARED=ON ^
-          -DENABLE_STATIC=OFF ^
-          -DENABLE_ASM=OFF ^
-          -DCMAKE_BUILD_TYPE=Release
+        # 清理旧产物
+        make clean 2>/dev/null || true
+        rm -rf build
         
-        :: 编译并安装（MSVC格式的.lib/.dll）
-        cmake --build . --config Release --target install -j %NUMBER_OF_PROCESSORS%
+        # 使用MinGW构建x264，生成MSVC兼容的库
+        ./configure \
+          --prefix="$WORKSPACE/x264-install" \
+          --host=x86_64-w64-mingw32 \
+          --enable-shared \
+          --enable-static \
+          --extra-cflags="-O2" \
+          --disable-asm \
+          --extra-ldflags="-static-libgcc"
+        
+        # 编译并安装
+        make -j$(nproc)
+        make install
         
     - name: Cache FFmpeg Source
       id: cache-ffmpeg-source
