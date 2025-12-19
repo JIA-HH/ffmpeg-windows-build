@@ -59,19 +59,19 @@ jobs:
           ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
           
     - name: Clone FFmpeg Source 
-      if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      # if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
       shell: msys2 {0}
       run: |
         cd $GITHUB_WORKSPACE
-        # # 如果目录不存在或者为空，则进行克隆
-        # if [ ! -d "ffmpeg" ] || [ -z "$(ls -A ffmpeg)" ]; then
+        # 如果目录不存在或者为空，则进行克隆
+        if [ ! -d "ffmpeg" ] || [ -z "$(ls -A ffmpeg)" ]; then
           rm -rf ffmpeg
           git clone --depth=1 --branch=n${{ env.FFPEG_VERSION }} https://github.com/FFmpeg/FFmpeg.git ffmpeg
           # 验证版本是否正确
-        #   cd ffmpeg && git rev-parse --short HEAD && cd ..
-        # else
-        #   echo "FFmpeg source directory already exists, skipping clone"
-        # fi
+        cd ffmpeg && git rev-parse --short HEAD && cd ..
+        else
+          echo "FFmpeg source directory already exists, skipping clone"
+        fi
         
     - name: Install Dependencies
       run: |
@@ -164,35 +164,22 @@ jobs:
           # 先备份原文件
           Copy-Item "libavutil/libm.h" "libavutil/libm.h.bak" -Force
           
-          # 直接使用PowerShell逐行处理，确保精确替换
-          $lines = Get-Content "libavutil/libm.h"
-          $newLines = @()
-          
-          foreach ($line in $lines) {
-            # 检查是否是我们要修改的行
-            if ($line -match '^\s*#\s*if\s+!\s*HAVE_\w+$') {
-              # 替换为 #if 0
-              $newLines += "#if 0"
-            } else {
-              # 保留原行
-              $newLines += $line
-            }
-          }
-          
-          # 写入修改后的内容
-          $newLines | Set-Content "libavutil/libm.h" -Encoding UTF8
-          
-          Write-Host "Modified libavutil/libm.h to disable internal math functions"
-          
-          # 验证修改是否正确
-          $invalidLines = Select-String -Path "libavutil/libm.h" -Pattern "#if 0[A-Z]" -AllMatches
-          if ($invalidLines) {
-            Write-Host "Error: Found invalid patterns after replacement:"
-            $invalidLines | ForEach-Object { Write-Host $_.Line }
-            Write-Host "Restoring backup file"
-            Copy-Item "libavutil/libm.h.bak" "libavutil/libm.h" -Force
-            exit 1
-          }
+          # 使用sed进行精确替换，确保整行被替换
+          bash -c @"
+            # 使用sed替换所有以#if !HAVE_开头的行
+            sed -i 's/^[[:space:]]*#[[:space:]]*if[[:space:]]*![[:space:]]*HAVE_[[:alnum:]_]*[[:space:]]*$/#if 0/g' libavutil/libm.h
+            
+            # 验证修改是否正确
+            if grep -q '#if 0[A-Z]' libavutil/libm.h; then
+              echo 'Error: Found invalid patterns after replacement:'
+              grep '#if 0[A-Z]' libavutil/libm.h
+              echo 'Restoring backup file'
+              cp libavutil/libm.h.bak libavutil/libm.h
+              exit 1
+            fi
+            
+            echo 'Successfully modified libavutil/libm.h'
+          "@
         }
         
         # 使用bash执行configure和make命令
