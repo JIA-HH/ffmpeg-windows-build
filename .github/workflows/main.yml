@@ -61,7 +61,35 @@ jobs:
     - name: Install Dependencies
       run: |
         choco install nasm -y
-        choco install pkgconfiglite -y     
+        choco install pkgconfiglite -y
+        
+    - name: Clone x264 Source
+      shell: msys2 {0}
+      run: |
+        cd $GITHUB_WORKSPACE
+        rm -rf x264
+        git clone --depth=1 https://code.videolan.org/videolan/x264.git x264
+        # 验证克隆是否成功
+        cd x264 && git rev-parse --short HEAD && cd ..
+        
+    - name: Build x264 with MSVC
+      continue-on-error: true
+      shell: msys2 {0}
+      run: |
+        cd $GITHUB_WORKSPACE/x264
+        
+        # 使用MinGW构建x264，因为我们需要与MSVC兼容的库
+        ./configure \
+          --prefix="${{ github.workspace }}/x264-install" \
+          --host=x86_64-w64-mingw32 \
+          --enable-static \
+          --enable-shared \
+          --extra-cflags="-O2" \
+          --disable-asm \
+          --extra-ldflags="-static-libgcc"
+          
+        make -j$(nproc)
+        make install     
 
     - name: Build FFmpeg with MSVC
       # continue-on-error: true
@@ -86,12 +114,18 @@ jobs:
           # 先备份原文件
           Copy-Item "libavutil/libm.h" "libavutil/libm.h.bak" -Force
           
-          # 修复PowerShell路径问题并使用sed替换
-          $sedPattern = 's/^[[:space:]]*#[[:space:]]*if[[:space:]]*![[:space:]]*HAVE_[[:alnum:]_]*[[:space:]]*$/#if 0/g'
-          bash -c "sed -i '$sedPattern' libavutil/libm.h"
+          # 使用sed替换所有以#if !HAVE_开头的行
+          bash -c 'sed -i "s/^[[:space:]]*#[[:space:]]*if[[:space:]]*![[:space:]]*HAVE_[[:alnum:]_]*[[:space:]]*$/#if 0/g" libavutil/libm.h'
           
           # 验证修改是否正确
-          bash -c 'if grep -q "#if 0[A-Z]" libavutil/libm.h; then echo "Error: Found invalid patterns after replacement:"; grep "#if 0[A-Z]" libavutil/libm.h; echo "Restoring backup file"; cp libavutil/libm.h.bak libavutil/libm.h; exit 1; fi'
+          $result = bash -c 'grep "#if 0[A-Z]" libavutil/libm.h' 2>&1
+          if ($result -and $result -notlike "grep: *") {
+            Write-Host "Error: Found invalid patterns after replacement:"
+            Write-Host $result
+            Write-Host "Restoring backup file"
+            Copy-Item "libavutil/libm.h.bak" "libavutil/libm.h" -Force
+            exit 1
+          }
           
           Write-Host "Successfully modified libavutil/libm.h"
         }
@@ -120,8 +154,16 @@ jobs:
           '--enable-shared',
           '--enable-static',
           '--enable-libx264',
-          "--extra-cflags=-I$msysX264Include -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1",
-          "--extra-ldflags=-L$msysX264Lib -static-libgcc",
+          "--extra-cflags=-I$msysX264Include",
+          "--extra-cflags=-DHAVE_LRINT=1",
+          "--extra-cflags=-DHAVE_LRINTF=1", 
+          "--extra-cflags=-DHAVE_RINT=1",
+          "--extra-cflags=-DHAVE_ROUND=1",
+          "--extra-cflags=-DHAVE_TRUNC=1",
+          "--extra-cflags=-DHAVE_CBRT=1",
+          "--extra-cflags=-DHAVE_ERF=1",
+          "--extra-ldflags=-L$msysX264Lib",
+          "--extra-ldflags=-static-libgcc",
           '--pkg-config-flags=--static',
           '--enable-w32threads',
           '--enable-postproc',
