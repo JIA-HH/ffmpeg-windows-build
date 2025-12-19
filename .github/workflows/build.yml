@@ -1,0 +1,81 @@
+name: FFmpeg Windows Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'  # 如果有子模块需要拉取
+
+    - name: Set up MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: mingw64
+        update: true
+        install: >-
+          base-devel
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-nasm
+          mingw-w64-x86_64-yasm
+          mingw-w64-x86_64-cmake
+          git
+
+    - name: Build FFmpeg
+      shell: msys2 {0}
+      run: |
+        # 进入源码目录（根据实际仓库结构调整）
+        cd ffmpeg  # 假设FFmpeg源码在ffmpeg子目录，若在根目录可省略
+        
+        # 配置构建选项（根据需求调整）
+        ./configure \
+          --prefix=/mingw64 \
+          --target-os=mingw32 \
+          --arch=x86_64 \
+          --enable-gpl \
+          --enable-version3 \
+          --enable-shared \
+          --disable-static \
+          --enable-memalign-hack \
+          --enable-libx264 \
+          --enable-libx265 \
+          --enable-libfdk-aac \
+          --enable-pthreads \
+          --enable-w32threads \
+          --enable-postproc \
+          --enable-avisynth \
+          --enable-libvorbis \
+          --enable-libmp3lame
+        
+        # 编译（使用多线程加速）
+        make -j$(nproc)
+        
+        # 安装到指定目录
+        make install
+
+    - name: Package build artifacts
+      run: |
+        # 创建输出目录
+        mkdir -p ffmpeg-build-output/bin
+        mkdir -p ffmpeg-build-output/lib
+        mkdir -p ffmpeg-build-output/include
+        
+        # 复制编译产物（根据实际安装路径调整）
+        cp /mingw64/bin/*.exe ffmpeg-build-output/bin/
+        cp /mingw64/bin/*.dll ffmpeg-build-output/bin/
+        cp /mingw64/lib/*.lib ffmpeg-build-output/lib/
+        cp -r /mingw64/include/* ffmpeg-build-output/include/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ffmpeg-windows-build
+        path: ffmpeg-build-output/
