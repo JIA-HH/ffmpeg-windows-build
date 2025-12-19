@@ -1,0 +1,47 @@
+name: Build FFmpeg
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      # 步骤1：检出你自己的仓库代码（包含编译脚本）
+      - name: Checkout repo code
+        uses: actions/checkout@v4
+
+      # 步骤2：安装MSYS2环境（如果你的编译基于MSYS2）
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            make
+            gcc
+            g++
+            yasm
+            nasm
+            pkg-config
+            libx264-dev
+            # 其他依赖（参考之前的依赖列表）
+
+      # 步骤3：克隆FFmpeg源码到编译脚本预期的目录（关键！）
+      - name: Clone FFmpeg source (n5.1.4)
+        shell: msys2 {0}
+        run: |
+          # 切换到编译脚本所在目录（根据你的仓库结构调整，比如脚本在根目录就用cd $GITHUB_WORKSPACE）
+          cd $GITHUB_WORKSPACE
+          # 克隆FFmpeg源码，切换到n5.1.4版本
+          git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg
+          cd ffmpeg
+          git checkout n5.1.4
+          cd ..
+
+      # 步骤4：执行你的编译脚本
+      - name: Build FFmpeg
+        shell: msys2 {0}
+        run: |
+          cd $GITHUB_WORKSPACE
+          # 执行你的编译命令（比如之前的cross_compile_ffmpeg.sh）
+          ./cross_compile_ffmpeg.sh --compiler-flavors=win64 --build-ffmpeg-shared=y --build-ffmpeg-static=n
