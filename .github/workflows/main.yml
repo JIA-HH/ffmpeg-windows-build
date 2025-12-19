@@ -44,28 +44,51 @@ jobs:
     - name: Setup Visual Studio Environment
       uses: ilammy/msvc-dev-cmd@v1
       
-    - name: Download FFmpeg Source
+    - name: Cache FFmpeg Source (n${{ env.FFPEG_VERSION }})
+      id: cache-ffmpeg
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/ffmpeg
+        key: ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('**/msvc-build.yaml') }}
+        restore-keys: |
+          ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
+          
+    - name: Clone FFmpeg Source (n${{ env.FFPEG_VERSION }})
+      if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      shell: msys2 {0}
       run: |
-        if (-not (Test-Path "${{ github.workspace }}/ffmpeg")) {
-          wget "https://ffmpeg.org/releases/ffmpeg-n${{ env.FFPEG_VERSION }}.tar.bz2" -O "ffmpeg.tar.bz2"
-          tar -xf "ffmpeg.tar.bz2"
-          Move-Item ffmpeg-n${{ env.FFPEG_VERSION }} ffmpeg
-        }
+        cd $GITHUB_WORKSPACE
+        git clone --depth=1 --branch=n${{ env.FFPEG_VERSION }} https://github.com/FFmpeg/FFmpeg.git ffmpeg
+        # 验证版本是否正确
+        cd ffmpeg && git rev-parse --short HEAD && cd ..
         
     - name: Install Dependencies
       run: |
         choco install nasm -y
         choco install pkgconfiglite -y
         
-    - name: Download and Build x264
+    - name: Cache x264 Source
+      id: cache-x264
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/x264
+        key: x264-source-${{ runner.os }}-${{ hashFiles('**/msvc-build.yaml') }}
+        restore-keys: |
+          x264-source-${{ runner.os }}-
+          
+    - name: Clone x264 Source
+      if: steps.cache-x264.outputs.cache-hit != 'true'
+      shell: msys2 {0}
       run: |
-        if (-not (Test-Path "${{ github.workspace }}/x264")) {
-          wget "https://code.videolan.org/videolan/x264/-/archive/master/x264-master.tar.bz2" -O "x264.tar.bz2"
-          tar -xf "x264.tar.bz2"
-          Move-Item x264-master x264
-        }
+        cd $GITHUB_WORKSPACE
+        git clone --depth=1 https://code.videolan.org/videolan/x264.git x264
+        # 验证克隆是否成功
+        cd x264 && git rev-parse --short HEAD && cd ..
         
-        cd "${{ github.workspace }}/x264"
+    - name: Build x264
+      shell: msys2 {0}
+      run: |
+        cd $GITHUB_WORKSPACE/x264
         
         # Configure and build x264
         ./configure \
@@ -74,7 +97,7 @@ jobs:
           --enable-static \
           --enable-shared
           
-        make -j${{ env.NUMBER_OF_PROCESSORS }}
+        make -j$(nproc)
         make install
         
     - name: Build FFmpeg with MSVC
@@ -104,7 +127,9 @@ jobs:
           --enable-nonfree \
           --disable-programs \
           --disable-doc \
-          --extra-cflags="-MD"
+          --extra-cflags="-MD" \
+          --enable-pic \
+          --extra-ldexeflags="-static-libgcc"
         
         # 编译
         make -j${{ env.NUMBER_OF_PROCESSORS }}
