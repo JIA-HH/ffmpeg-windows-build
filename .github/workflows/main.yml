@@ -173,8 +173,9 @@ jobs:
           # 先备份原文件
           Copy-Item "libavutil/libm.h" "libavutil/libm.h.bak" -Force
           
-          # 使用sed进行精确替换，确保整行被替换
-          bash -c 'sed -i "s/^[[:space:]]*#[[:space:]]*if[[:space:]]*![[:space:]]*HAVE_[[:alnum:]_]*[[:space:]]*$/#if 0/g" libavutil/libm.h'
+          # 修复PowerShell路径问题并使用sed替换
+          $sedPattern = 's/^[[:space:]]*#[[:space:]]*if[[:space:]]*![[:space:]]*HAVE_[[:alnum:]_]*[[:space:]]*$/#if 0/g'
+          bash -c "sed -i '$sedPattern' libavutil/libm.h"
           
           # 验证修改是否正确
           bash -c 'if grep -q "#if 0[A-Z]" libavutil/libm.h; then echo "Error: Found invalid patterns after replacement:"; grep "#if 0[A-Z]" libavutil/libm.h; echo "Restoring backup file"; cp libavutil/libm.h.bak libavutil/libm.h; exit 1; fi'
@@ -185,9 +186,18 @@ jobs:
         # 使用bash执行configure和make命令
         bash -c "make clean || true"
         
+        # 设置x264 pkg-config路径
+        $env:PKG_CONFIG_PATH = "${{ github.workspace }}\x264-install\lib\pkgconfig"
+        
+        # 将Windows路径转换为MSYS路径（避免路径混合）
+        $msysWorkspace = "${{ github.workspace }}" -replace '^([A-Z]):', '/$1' -replace '\\', '/'
+        $msysPrefix = "$msysWorkspace/ffmpeg-install"
+        $msysX264Include = "$msysWorkspace/x264-install/include"
+        $msysX264Lib = "$msysWorkspace/x264-install/lib"
+        
         # MSVC配置参数
         $configureArgs = @(
-          '--prefix="${{ github.workspace }}/ffmpeg-install"',
+          "--prefix=$msysPrefix",
           '--target-os=win32',
           '--arch=x86_64',
           '--toolchain=msvc',
@@ -197,16 +207,15 @@ jobs:
           '--enable-shared',
           '--enable-static',
           '--enable-libx264',
-          '--extra-cflags="-I${{ github.workspace }}/x264-install/include -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1"',
-          '--extra-ldflags="-L${{ github.workspace }}/x264-install/lib"',
-          '--pkg-config-flags="--static"',
+          "--extra-cflags=-I$msysX264Include -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1",
+          "--extra-ldflags=-L$msysX264Lib -static-libgcc",
+          '--pkg-config-flags=--static',
           '--enable-w32threads',
           '--enable-postproc',
           '--enable-nonfree',
           '--disable-programs',
           '--disable-doc',
-          '--extra-cflags="-MD"',
-          '--extra-ldflags="-static-libgcc"'
+          '--extra-cflags=-MD'
         )
         
         $configureCommand = "./configure " + ($configureArgs -join ' ')
