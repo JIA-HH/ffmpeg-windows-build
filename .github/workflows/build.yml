@@ -31,7 +31,6 @@ jobs:
           mingw-w64-x86_64-libx265
           mingw-w64-x86_64-libvorbis
           mingw-w64-x86_64-lame
-          # mingw-w64-x86_64-avisynthplus
           git
           pkg-config
 
