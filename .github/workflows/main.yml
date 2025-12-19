@@ -13,6 +13,11 @@ on:
         required: false
         default: 'false'
         type: boolean
+      use_cache:
+        description: 'Use caching for build artifacts'
+        required: false
+        default: 'false'
+        type: boolean
 
 env:
   FFPEG_VERSION: 5.1.4
@@ -51,6 +56,7 @@ jobs:
       
     - name: Cache FFmpeg Source 
       id: cache-ffmpeg
+      if: github.event.inputs.use_cache == 'true'
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/ffmpeg
@@ -59,7 +65,7 @@ jobs:
           ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
           
     - name: Clone FFmpeg Source 
-      # if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      if: github.event.inputs.use_cache == 'false' || steps.cache-ffmpeg.outputs.cache-hit != 'true'
       shell: msys2 {0}
       run: |
         cd $GITHUB_WORKSPACE
@@ -80,6 +86,7 @@ jobs:
         
     - name: Cache x264 Source
       id: cache-x264
+      if: github.event.inputs.use_cache == 'true'
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/x264
@@ -88,7 +95,7 @@ jobs:
           x264-source-${{ runner.os }}-
           
     - name: Clone x264 Source
-      if: steps.cache-x264.outputs.cache-hit != 'true'
+      if: github.event.inputs.use_cache == 'false' || steps.cache-x264.outputs.cache-hit != 'true'
       shell: msys2 {0}
       run: |
         cd $GITHUB_WORKSPACE
@@ -104,6 +111,7 @@ jobs:
         
     - name: Cache x264 Build
       id: cache-x264-build
+      if: github.event.inputs.use_cache == 'true'
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/x264-install
@@ -112,7 +120,7 @@ jobs:
           x264-build-${{ runner.os }}-
           
     - name: Build x264 with MSVC
-      if: steps.cache-x264-build.outputs.cache-hit != 'true'
+      if: github.event.inputs.use_cache == 'false' || steps.cache-x264-build.outputs.cache-hit != 'true'
       continue-on-error: true
       shell: msys2 {0}
       run: |
@@ -133,6 +141,7 @@ jobs:
         
     - name: Cache FFmpeg Build
       id: cache-ffmpeg-build
+      if: github.event.inputs.use_cache == 'true'
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/ffmpeg-install
@@ -141,7 +150,7 @@ jobs:
           ffmpeg-build-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
           
     - name: Build FFmpeg with MSVC
-      # if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
+      if: github.event.inputs.use_cache == 'false' || steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
       # continue-on-error: true
       shell: powershell
       run: |
@@ -165,56 +174,48 @@ jobs:
           Copy-Item "libavutil/libm.h" "libavutil/libm.h.bak" -Force
           
           # 使用sed进行精确替换，确保整行被替换
-          bash -c @"
-            # 使用sed替换所有以#if !HAVE_开头的行
-            sed -i 's/^[[:space:]]*#[[:space:]]*if[[:space:]]*![[:space:]]*HAVE_[[:alnum:]_]*[[:space:]]*$/#if 0/g' libavutil/libm.h
-            
-            # 验证修改是否正确
-            if grep -q '#if 0[A-Z]' libavutil/libm.h; then
-              echo 'Error: Found invalid patterns after replacement:'
-              grep '#if 0[A-Z]' libavutil/libm.h
-              echo 'Restoring backup file'
-              cp libavutil/libm.h.bak libavutil/libm.h
-              exit 1
-            fi
-            
-            echo 'Successfully modified libavutil/libm.h'
-          "@
+          bash -c 'sed -i "s/^[[:space:]]*#[[:space:]]*if[[:space:]]*![[:space:]]*HAVE_[[:alnum:]_]*[[:space:]]*$/#if 0/g" libavutil/libm.h'
+          
+          # 验证修改是否正确
+          bash -c 'if grep -q "#if 0[A-Z]" libavutil/libm.h; then echo "Error: Found invalid patterns after replacement:"; grep "#if 0[A-Z]" libavutil/libm.h; echo "Restoring backup file"; cp libavutil/libm.h.bak libavutil/libm.h; exit 1; fi'
+          
+          Write-Host "Successfully modified libavutil/libm.h"
         }
         
         # 使用bash执行configure和make命令
-        bash -c @"
-          # 清理旧编译产物
-          make clean || true
-          
-          # MSVC 配置
-          ./configure \
-            --prefix='${{ github.workspace }}/ffmpeg-install' \
-            --target-os=win32 \
-            --arch=x86_64 \
-            --toolchain=msvc \
-            --enable-cross-compile \
-            --enable-gpl \
-            --enable-version3 \
-            --enable-shared \
-            --enable-static \
-            --enable-libx264 \
-            --extra-cflags='-I${{ github.workspace }}/x264-install/include -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1' \
-            --extra-ldflags='-L${{ github.workspace }}/x264-install/lib' \
-            --pkg-config-flags='--static' \
-            --enable-w32threads \
-            --enable-postproc \
-            --enable-nonfree \
-            --disable-programs \
-            --disable-doc \
-            --extra-cflags='-MD'
-            
-          # 编译
-          make -j$(nproc)
-          
-          # 安装
-          make install
-        "@
+        bash -c "make clean || true"
+        
+        # MSVC配置参数
+        $configureArgs = @(
+          '--prefix="${{ github.workspace }}/ffmpeg-install"',
+          '--target-os=win32',
+          '--arch=x86_64',
+          '--toolchain=msvc',
+          '--enable-cross-compile',
+          '--enable-gpl',
+          '--enable-version3',
+          '--enable-shared',
+          '--enable-static',
+          '--enable-libx264',
+          '--extra-cflags="-I${{ github.workspace }}/x264-install/include -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1"',
+          '--extra-ldflags="-L${{ github.workspace }}/x264-install/lib"',
+          '--pkg-config-flags="--static"',
+          '--enable-w32threads',
+          '--enable-postproc',
+          '--enable-nonfree',
+          '--disable-programs',
+          '--disable-doc',
+          '--extra-cflags="-MD"',
+          '--extra-ldflags="-static-libgcc"'
+        )
+        
+        $configureCommand = "./configure " + ($configureArgs -join ' ')
+        Write-Host "Running: $configureCommand"
+        bash -c $configureCommand
+        
+        # 编译和安装
+        bash -c "make -j$(nproc)"
+        bash -c "make install"
         
     - name: Package Build Artifacts
       if: always()
