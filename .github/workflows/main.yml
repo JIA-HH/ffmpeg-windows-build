@@ -13,11 +13,6 @@ on:
         required: false
         default: 'false'
         type: boolean
-      use_cache:
-        description: 'Use caching for build artifacts'
-        required: false
-        default: 'false'
-        type: boolean
 
 env:
   FFPEG_VERSION: 5.1.4
@@ -54,103 +49,21 @@ jobs:
     - name: Setup Visual Studio Environment
       uses: ilammy/msvc-dev-cmd@v1
       
-    - name: Cache FFmpeg Source 
-      id: cache-ffmpeg
-      if: github.event.inputs.use_cache == 'true'
-      uses: actions/cache@v4
-      with:
-        path: ${{ github.workspace }}/ffmpeg
-        key: ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('**/msvc-build.yaml') }}
-        restore-keys: |
-          ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
-          
     - name: Clone FFmpeg Source 
-      if: github.event.inputs.use_cache == 'false' || steps.cache-ffmpeg.outputs.cache-hit != 'true'
       shell: msys2 {0}
       run: |
         cd $GITHUB_WORKSPACE
-        # 如果目录不存在或者为空，则进行克隆
-        if [ ! -d "ffmpeg" ] || [ -z "$(ls -A ffmpeg)" ]; then
-          rm -rf ffmpeg
-          git clone --depth=1 --branch=n${{ env.FFPEG_VERSION }} https://github.com/FFmpeg/FFmpeg.git ffmpeg
-          # 验证版本是否正确
+        rm -rf ffmpeg
+        git clone --depth=1 --branch=n${{ env.FFPEG_VERSION }} https://github.com/FFmpeg/FFmpeg.git ffmpeg
+        # 验证版本是否正确
         cd ffmpeg && git rev-parse --short HEAD && cd ..
-        else
-          echo "FFmpeg source directory already exists, skipping clone"
-        fi
         
     - name: Install Dependencies
       run: |
         choco install nasm -y
-        choco install pkgconfiglite -y
-        
-    - name: Cache x264 Source
-      id: cache-x264
-      if: github.event.inputs.use_cache == 'true'
-      uses: actions/cache@v4
-      with:
-        path: ${{ github.workspace }}/x264
-        key: x264-source-${{ runner.os }}-${{ hashFiles('**/msvc-build.yaml') }}
-        restore-keys: |
-          x264-source-${{ runner.os }}-
-          
-    - name: Clone x264 Source
-      if: github.event.inputs.use_cache == 'false' || steps.cache-x264.outputs.cache-hit != 'true'
-      shell: msys2 {0}
-      run: |
-        cd $GITHUB_WORKSPACE
-        # 如果目录不存在或者为空，则进行克隆
-        if [ ! -d "x264" ] || [ -z "$(ls -A x264)" ]; then
-          rm -rf x264
-          git clone --depth=1 https://code.videolan.org/videolan/x264.git x264
-          # 验证克隆是否成功
-          cd x264 && git rev-parse --short HEAD && cd ..
-        else
-          echo "x264 source directory already exists, skipping clone"
-        fi
-        
-    - name: Cache x264 Build
-      id: cache-x264-build
-      if: github.event.inputs.use_cache == 'true'
-      uses: actions/cache@v4
-      with:
-        path: ${{ github.workspace }}/x264-install
-        key: x264-build-${{ runner.os }}-${{ hashFiles('**/msvc-build.yaml') }}
-        restore-keys: |
-          x264-build-${{ runner.os }}-
-          
-    - name: Build x264 with MSVC
-      if: github.event.inputs.use_cache == 'false' || steps.cache-x264-build.outputs.cache-hit != 'true'
-      continue-on-error: true
-      shell: msys2 {0}
-      run: |
-        cd $GITHUB_WORKSPACE/x264
-        
-        # 使用MinGW构建x264，因为我们需要与MSVC兼容的库
-        ./configure \
-          --prefix="${{ github.workspace }}/x264-install" \
-          --host=x86_64-w64-mingw32 \
-          --enable-static \
-          --enable-shared \
-          --extra-cflags="-O2" \
-          --disable-asm \
-          --extra-ldflags="-static-libgcc"
-          
-        make -j$(nproc)
-        make install
-        
-    - name: Cache FFmpeg Build
-      id: cache-ffmpeg-build
-      if: github.event.inputs.use_cache == 'true'
-      uses: actions/cache@v4
-      with:
-        path: ${{ github.workspace }}/ffmpeg-install
-        key: ffmpeg-build-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('**/msvc-build.yaml') }}
-        restore-keys: |
-          ffmpeg-build-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
-          
+        choco install pkgconfiglite -y     
+
     - name: Build FFmpeg with MSVC
-      if: github.event.inputs.use_cache == 'false' || steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
       # continue-on-error: true
       shell: powershell
       run: |
