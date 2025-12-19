@@ -191,9 +191,9 @@ jobs:
         cd $env:WORKSPACE\ffmpeg
         
         # 清理旧产物
-        # if (Test-Path "ffbuild\config.mak") {
-        #   Remove-Item "ffbuild\config.mak" -Force
-        # }
+        if (Test-Path "ffbuild\config.mak") {
+          Remove-Item "ffbuild\config.mak" -Force
+        }
         
         # 设置环境变量（纯MSVC）
         $env:CC = "cl"
@@ -225,14 +225,45 @@ jobs:
           "--disable-programs",
           "--disable-doc",
           "--disable-asm",
-          "--extra-cflags=-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1",
+          "--extra-cflags=-MD",
+          "--extra-cflags=-DHAVE_LRINT=1",
+          "--extra-cflags=-DHAVE_LRINTF=1",
+          "--extra-cflags=-DHAVE_RINT=1",
+          "--extra-cflags=-DHAVE_ROUND=1",
+          "--extra-cflags=-DHAVE_TRUNC=1",
+          "--extra-cflags=-DHAVE_CBRT=1",
+          "--extra-cflags=-DHAVE_ERF=1",
           "--extra-ldflags=-LIBPATH:$env:X264_INSTALL\lib"
         )
         
         # 在MSVC环境下执行configure
-        $configureCommand = ".\configure " + ($configureArgs -join ' ')
-        Write-Host "Running: $configureCommand"
-        Invoke-Expression $configureCommand
+        $configureCmd = ".\configure"
+        foreach ($arg in $configureArgs) {
+          $configureCmd += " $arg"
+        }
+        
+        Write-Host "Running: $configureCmd"
+        
+        # 使用cmd执行configure，确保参数正确传递
+        cmd /c "$configureCmd > configure_output.txt 2>&1"
+        
+        # 检查configure是否成功
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Configure failed with exit code $LASTEXITCODE"
+          Get-Content configure_output.txt | Write-Host
+          exit $LASTEXITCODE
+        }
+        
+        # 显示configure输出
+        Get-Content configure_output.txt | Write-Host
+        
+        # 检查config.mak是否已创建
+        if (-not (Test-Path "ffbuild\config.mak")) {
+          Write-Error "Configure completed but ffbuild\config.mak was not created"
+          Write-Host "Contents of current directory:"
+          Get-ChildItem | Write-Host
+          exit 1
+        }
         
         # 编译
         make -j $env:NUMBER_OF_PROCESSORS
