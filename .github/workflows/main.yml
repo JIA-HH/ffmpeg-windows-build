@@ -59,12 +59,15 @@ jobs:
           sed
           pkg-config
           mingw-w64-x86_64-yasm
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-pkg-config
       
     - name: Setup Visual Studio Environment (MSVC核心环境)
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
-        vs_version: 2022
+        vsversion: 2022
         # 移除toolset参数，使用默认工具集
         
     - name: Cache MSVC编译依赖
@@ -123,6 +126,10 @@ jobs:
         # 清理旧产物
         make clean 2>/dev/null || true
         rm -rf build
+        
+        # 设置环境变量确保使用MinGW编译器
+        export CC=x86_64-w64-mingw32-gcc
+        export CXX=x86_64-w64-mingw32-g++
         
         # 使用MinGW构建x264，生成MSVC兼容的库
         ./configure \
