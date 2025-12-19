@@ -55,7 +55,6 @@ jobs:
           --disable-static \
           --enable-libx264 \
           --enable-libx265 \
-          --enable-libfdk-aac \
           --enable-pthreads \
           --enable-w32threads \
           --enable-postproc \
