@@ -37,11 +37,20 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
       
+    - name: Cache MSYS2 Dependencies
+      id: cache-msys2
+      uses: actions/cache@v4
+      with:
+        path: C:\tools\msys64
+        key: msys2-${{ runner.os }}-${{ hashFiles('**/msvc.yaml') }}
+        restore-keys: |
+          msys2-${{ runner.os }}-
+          
     - name: Setup MSYS2 (仅用于依赖下载/辅助工具，不参与编译)
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
-        update: true
+        update: ${{ steps.cache-msys2.outputs.cache-hit != 'true' }}
         install: >-
           git
           make
@@ -55,9 +64,22 @@ jobs:
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
-        toolset: latest
+        vs_version: 2022
+        # 移除toolset参数，使用默认工具集
         
+    - name: Cache MSVC编译依赖
+      id: cache-msvc-deps
+      uses: actions/cache@v4
+      with:
+        path: |
+          C:\Program Files\NASM
+          C:\Program Files\CMake
+        key: msvc-deps-${{ runner.os }}-${{ hashFiles('**/msvc.yaml') }}
+        restore-keys: |
+          msvc-deps-${{ runner.os }}-
+          
     - name: Install MSVC编译依赖
+      if: steps.cache-msvc-deps.outputs.cache-hit != 'true'
       run: |
         # 安装nasm（MSVC编译FFmpeg必需）、cmake
         choco install nasm -y --no-progress
@@ -65,7 +87,17 @@ jobs:
         # 刷新环境变量
         refreshenv
         
+    - name: Cache x264 Source
+      id: cache-x264-source
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.WORKSPACE }}\x264
+        key: x264-source-${{ runner.os }}-${{ hashFiles('**/msvc.yaml') }}
+        restore-keys: |
+          x264-source-${{ runner.os }}-
+          
     - name: Clone x264 Source (适配MSVC编译)
+      if: steps.cache-x264-source.outputs.cache-hit != 'true'
       shell: cmd
       run: |
         cd %WORKSPACE%
@@ -73,7 +105,17 @@ jobs:
         git clone --depth=1 https://code.videolan.org/videolan/x264.git x264
         cd x264 && git rev-parse --short HEAD && cd ..
         
+    - name: Cache x264 Build
+      id: cache-x264-build
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.X264_INSTALL }}
+        key: x264-build-${{ runner.os }}-${{ hashFiles('**/msvc.yaml') }}
+        restore-keys: |
+          x264-build-${{ runner.os }}-
+          
     - name: Build x264 with MSVC (关键修复：生成MSVC格式库)
+      if: steps.cache-x264-build.outputs.cache-hit != 'true'
       shell: cmd
       run: |
         cd %WORKSPACE%\x264
@@ -93,7 +135,17 @@ jobs:
         :: 编译并安装（MSVC格式的.lib/.dll）
         cmake --build . --config Release --target install -j %NUMBER_OF_PROCESSORS%
         
+    - name: Cache FFmpeg Source
+      id: cache-ffmpeg-source
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.WORKSPACE }}\ffmpeg
+        key: ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('**/msvc.yaml') }}
+        restore-keys: |
+          ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
+          
     - name: Clone FFmpeg Source 
+      if: steps.cache-ffmpeg-source.outputs.cache-hit != 'true'
       shell: cmd
       run: |
         cd %WORKSPACE%
@@ -113,7 +165,17 @@ jobs:
         # 验证修改
         cat libm.h | grep -E "#if 0.*HAVE_" | head -5
         
+    - name: Cache FFmpeg Build
+      id: cache-ffmpeg-build
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.FFMPEG_INSTALL }}
+        key: ffmpeg-build-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('**/msvc.yaml') }}
+        restore-keys: |
+          ffmpeg-build-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
+          
     - name: Build FFmpeg with MSVC (核心修复：纯MSVC编译)
+      if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
       shell: cmd
       run: |
         cd %WORKSPACE%\ffmpeg
