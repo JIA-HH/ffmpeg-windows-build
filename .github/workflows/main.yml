@@ -1,88 +1,117 @@
-name: FFmpeg Windows Build
+name: Build FFmpeg with MSVC
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
+    tags: [ 'v*' ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a release after build'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  FFPEG_VERSION: 5.1.4
 
 jobs:
   build:
     runs-on: windows-latest
-
+    defaults:
+      run:
+        shell: powershell
+    
     steps:
-    - name: Checkout code
+    - name: Checkout Repository
       uses: actions/checkout@v4
-      with:
-        submodules: 'recursive'
-
-    - name: Set up MSYS2 & Install Dependencies
+      
+    - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
-        msystem: mingw64
-        update: true
+        msystem: MINGW64
+        update: false
         install: >-
           base-devel
-          mingw-w64-x86_64-toolchain
-          mingw-w64-x86_64-nasm
-          mingw-w64-x86_64-yasm
-          mingw-w64-x86_64-cmake
-          mingw-w64-x86_64-libx264
           git
-          pkg-config
-
-    # 缓存FFmpeg源码，避免每次重复克隆（核心优化）
-    - name: Cache FFmpeg Source (n5.1.4)
-      id: cache-ffmpeg
-      uses: actions/cache@v4
-      with:
-        path: ${{ github.workspace }}/ffmpeg
-        key: ffmpeg-source-n5.1.4-${{ runner.os }}-${{ hashFiles('**/build.yml') }}
-        restore-keys: |
-          ffmpeg-source-n5.1.4-${{ runner.os }}-
-
-    # 仅缓存未命中时克隆源码（第一次运行/版本变更时执行）
-    - name: Clone FFmpeg Source (n5.1.4)
-      if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
-      shell: msys2 {0}
+          make
+          wget
+          unzip
+          yasm
+      
+    - name: Setup Visual Studio Environment
+      uses: ilammy/msvc-dev-cmd@v1
+      
+    - name: Download FFmpeg Source
       run: |
-        cd $GITHUB_WORKSPACE
-        git clone --depth=1 --branch=n5.1.4 https://github.com/FFmpeg/FFmpeg.git ffmpeg
-        # 验证版本是否正确
-        cd ffmpeg && git rev-parse --short HEAD && cd ..
-
-    - name: Build FFmpeg
-      shell: msys2 {0}
-      run: |
-        cd $GITHUB_WORKSPACE/ffmpeg
+        if (-not (Test-Path "${{ github.workspace }}/ffmpeg")) {
+          wget "https://ffmpeg.org/releases/ffmpeg-n${{ env.FFPEG_VERSION }}.tar.bz2" -O "ffmpeg.tar.bz2"
+          tar -xf "ffmpeg.tar.bz2"
+          Move-Item ffmpeg-n${{ env.FFPEG_VERSION }} ffmpeg
+        }
         
-        # 清理旧编译产物（避免缓存干扰）
+    - name: Install Dependencies
+      run: |
+        choco install nasm -y
+        choco install pkgconfiglite -y
+        
+    - name: Download and Build x264
+      run: |
+        if (-not (Test-Path "${{ github.workspace }}/x264")) {
+          wget "https://code.videolan.org/videolan/x264/-/archive/master/x264-master.tar.bz2" -O "x264.tar.bz2"
+          tar -xf "x264.tar.bz2"
+          Move-Item x264-master x264
+        }
+        
+        cd "${{ github.workspace }}/x264"
+        
+        # Configure and build x264
+        ./configure \
+          --prefix="${{ github.workspace }}/x264-install" \
+          --host=x86_64-w64-mingw32 \
+          --enable-static \
+          --enable-shared
+          
+        make -j${{ env.NUMBER_OF_PROCESSORS }}
+        make install
+        
+    - name: Build FFmpeg with MSVC
+      run: |
+        cd "${{ github.workspace }}/ffmpeg"
+        
+        # 清理旧编译产物
         make clean || true
         
-        # 配置构建选项
+        # MSVC 配置
         ./configure \
           --prefix="${{ github.workspace }}/ffmpeg-install" \
-          --target-os=mingw32 \
+          --target-os=win32 \
           --arch=x86_64 \
+          --toolchain=msvc \
+          --enable-cross-compile \
           --enable-gpl \
           --enable-version3 \
           --enable-shared \
           --enable-static \
           --enable-libx264 \
+          --extra-cflags="-I${{ github.workspace }}/x264-install/include" \
+          --extra-ldflags="-L${{ github.workspace }}/x264-install/lib" \
+          --pkg-config-flags="--static" \
           --enable-w32threads \
           --enable-postproc \
           --enable-nonfree \
           --disable-programs \
           --disable-doc \
-          --extra-cflags="-I/mingw64/include" \
-          --extra-ldflags="-L/mingw64/lib"
+          --extra-cflags="-MD"
         
-        # 编译（自动适配CPU核心数）
-        make -j$(nproc)
+        # 编译
+        make -j${{ env.NUMBER_OF_PROCESSORS }}
         
-        # 安装到指定目录
+        # 安装
         make install
-
+        
     - name: Package Build Artifacts
       shell: msys2 {0}
       run: |
@@ -90,6 +119,7 @@ jobs:
         mkdir -p "${{ github.workspace }}/ffmpeg-build-output/bin"
         mkdir -p "${{ github.workspace }}/ffmpeg-build-output/lib"
         mkdir -p "${{ github.workspace }}/ffmpeg-build-output/include"
+        mkdir -p "${{ github.workspace }}/ffmpeg-build-output/licenses"
         
         # 复制编译产物
         cp -f "${{ github.workspace }}/ffmpeg-install/bin/"*.dll "${{ github.workspace }}/ffmpeg-build-output/bin/" 2>/dev/null || true
@@ -97,39 +127,68 @@ jobs:
         cp -f "${{ github.workspace }}/ffmpeg-install/lib/"*.dll.a "${{ github.workspace }}/ffmpeg-build-output/lib/" 2>/dev/null || true
         cp -r "${{ github.workspace }}/ffmpeg-install/include/"* "${{ github.workspace }}/ffmpeg-build-output/include/" 2>/dev/null || true
         
+        # 复制 x264 库文件
+        cp -f "${{ github.workspace }}/x264-install/bin/"*.dll "${{ github.workspace }}/ffmpeg-build-output/bin/" 2>/dev/null || true
+        cp -f "${{ github.workspace }}/x264-install/lib/"*.lib "${{ github.workspace }}/ffmpeg-build-output/lib/" 2>/dev/null || true
+        cp -f "${{ github.workspace }}/x264-install/lib/"*.dll.a "${{ github.workspace }}/ffmpeg-build-output/lib/" 2>/dev/null || true
+        cp -r "${{ github.workspace }}/x264-install/include/"* "${{ github.workspace }}/ffmpeg-build-output/include/" 2>/dev/null || true
+        
+        # 复制许可证文件
+        cp "${{ github.workspace }}/ffmpeg/LICENSE.md" "${{ github.workspace }}/ffmpeg-build-output/licenses/FFmpeg.txt" 2>/dev/null || true
+        cp "${{ github.workspace }}/x264/COPYING" "${{ github.workspace }}/ffmpeg-build-output/licenses/x264.txt" 2>/dev/null || true
+        
         # 验证产物是否存在
         ls -l "${{ github.workspace }}/ffmpeg-build-output/bin/"
         ls -l "${{ github.workspace }}/ffmpeg-build-output/lib/"
-
+        
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ffmpeg-windows-x64-shared-n5.1.4
+        name: ffmpeg-windows-x64-shared-n${{ env.FFPEG_VERSION }}
         path: ${{ github.workspace }}/ffmpeg-build-output/
         retention-days: 90
-
+        
     - name: Package Build Artifacts as ZIP
       run: |
-        cd ${{ github.workspace }}/ffmpeg-build-output
-        powershell Compress-Archive -Path * -DestinationPath ../ffmpeg-windows-x64-shared-n5.1.4.zip
-
+        cd "${{ github.workspace }}/ffmpeg-build-output"
+        powershell Compress-Archive -Path * -DestinationPath ../ffmpeg-windows-x64-shared-n${{ env.FFPEG_VERSION }}.zip
+        
     - name: Create Release
       id: create_release
+      if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: n5.1.4-${{ github.run_number }}
-        release_name: FFmpeg Windows Build v5.1.4 #${{ github.run_number }}
+        tag_name: n${{ env.FFPEG_VERSION }}-${{ github.run_number }}
+        release_name: FFmpeg Windows Build v${{ env.FFPEG_VERSION }}-${{ github.run_number }}
         draft: false
         prerelease: false
-
+        body: |
+          FFmpeg ${{ env.FFPEG_VERSION }} Windows build with:
+          - MSVC toolchain
+          - x264 support
+          - Shared libraries
+          - Static libraries
+          - Headers for development
+          
+          ## Files included:
+          - Binaries (DLLs and EXEs)
+          - Libraries (LIB and DLL.A files)
+          - Header files for development
+          - Licenses for included components
+          
+          ## Version Information
+          - Build Number: ${{ github.run_number }}
+          - Commit: ${{ github.sha }}
+          
     - name: Upload Release Asset
+      if: steps.create_release.outputs.upload_url
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ${{ github.workspace }}/ffmpeg-windows-x64-shared-n5.1.4.zip
-        asset_name: ffmpeg-windows-x64-shared-n5.1.4.zip
+        asset_path: ${{ github.workspace }}/ffmpeg-windows-x64-shared-n${{ env.FFPEG_VERSION }}.zip
+        asset_name: ffmpeg-windows-x64-shared-n${{ env.FFPEG_VERSION }}.zip
         asset_content_type: application/zip
