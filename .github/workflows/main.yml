@@ -49,7 +49,7 @@ jobs:
           unzip
           sed
           pkg-config
-          winflexbison
+          mingw-w64-x86_64-winflexbison
           mingw-w64-x86_64-yasm
       
     - name: Setup Visual Studio Environment (MSVC核心环境)
