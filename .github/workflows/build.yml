@@ -27,10 +27,6 @@ jobs:
           mingw-w64-x86_64-nasm
           mingw-w64-x86_64-yasm
           mingw-w64-x86_64-cmake
-          mingw-w64-x86_64-libx264
-          mingw-w64-x86_64-libx265
-          mingw-w64-x86_64-libvorbis
-          mingw-w64-x86_64-lame
           git
           pkg-config
 
