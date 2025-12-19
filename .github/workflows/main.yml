@@ -159,6 +159,42 @@ jobs:
         
         cd "${{ github.workspace }}/ffmpeg"
         
+        # 修改libavutil/libm.h文件，禁用内部数学函数实现
+        if (Test-Path "libavutil/libm.h") {
+          # 先备份原文件
+          Copy-Item "libavutil/libm.h" "libavutil/libm.h.bak" -Force
+          
+          # 直接使用PowerShell逐行处理，确保精确替换
+          $lines = Get-Content "libavutil/libm.h"
+          $newLines = @()
+          
+          foreach ($line in $lines) {
+            # 检查是否是我们要修改的行
+            if ($line -match '^\s*#\s*if\s+!\s*HAVE_\w+$') {
+              # 替换为 #if 0
+              $newLines += "#if 0"
+            } else {
+              # 保留原行
+              $newLines += $line
+            }
+          }
+          
+          # 写入修改后的内容
+          $newLines | Set-Content "libavutil/libm.h" -Encoding UTF8
+          
+          Write-Host "Modified libavutil/libm.h to disable internal math functions"
+          
+          # 验证修改是否正确
+          $invalidLines = Select-String -Path "libavutil/libm.h" -Pattern "#if 0[A-Z]" -AllMatches
+          if ($invalidLines) {
+            Write-Host "Error: Found invalid patterns after replacement:"
+            $invalidLines | ForEach-Object { Write-Host $_.Line }
+            Write-Host "Restoring backup file"
+            Copy-Item "libavutil/libm.h.bak" "libavutil/libm.h" -Force
+            exit 1
+          }
+        }
+        
         # 使用bash执行configure和make命令
         bash -c @"
           # 清理旧编译产物
