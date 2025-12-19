@@ -58,9 +58,15 @@ jobs:
       shell: msys2 {0}
       run: |
         cd $GITHUB_WORKSPACE
-        git clone --depth=1 --branch=n${{ env.FFPEG_VERSION }} https://github.com/FFmpeg/FFmpeg.git ffmpeg
-        # 验证版本是否正确
-        cd ffmpeg && git rev-parse --short HEAD && cd ..
+        # 如果目录不存在或者为空，则进行克隆
+        if [ ! -d "ffmpeg" ] || [ -z "$(ls -A ffmpeg)" ]; then
+          rm -rf ffmpeg
+          git clone --depth=1 --branch=n${{ env.FFPEG_VERSION }} https://github.com/FFmpeg/FFmpeg.git ffmpeg
+          # 验证版本是否正确
+          cd ffmpeg && git rev-parse --short HEAD && cd ..
+        else
+          echo "FFmpeg source directory already exists, skipping clone"
+        fi
         
     - name: Install Dependencies
       run: |
