@@ -141,8 +141,8 @@ jobs:
           ffmpeg-build-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
           
     - name: Build FFmpeg with MSVC
-      if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
-      continue-on-error: true
+      # if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
+      # continue-on-error: true
       shell: powershell
       run: |
         # 设置MSVC环境变量
