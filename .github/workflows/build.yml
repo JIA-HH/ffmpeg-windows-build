@@ -53,7 +53,6 @@ jobs:
           --enable-version3 \
           --enable-shared \
           --disable-static \
-          --enable-memalign-hack \
           --enable-libx264 \
           --enable-libx265 \
           --enable-libfdk-aac \
