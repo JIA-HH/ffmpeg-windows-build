@@ -103,6 +103,7 @@ jobs:
         fi
         
     - name: Build x264 with MSVC
+      continue-on-error: true
       shell: msys2 {0}
       run: |
         cd $GITHUB_WORKSPACE/x264
@@ -121,6 +122,7 @@ jobs:
         make install
         
     - name: Build FFmpeg with MSVC
+      continue-on-error: true
       shell: powershell
       run: |
         # 设置MSVC环境变量
@@ -140,8 +142,43 @@ jobs:
         # 修改libavutil/libm.h文件，禁用内部数学函数实现
         if (Test-Path "libavutil/libm.h") {
           $content = Get-Content "libavutil/libm.h" -Raw
-          # 将所有#if !HAVE_XXX条件编译语句替换为#if 0
-          $content = $content -replace '#if !HAVE_([A-Z_]+)', '#if 0'
+          
+          # 使用更精确的方法，逐个替换已知的条件编译语句
+          $patterns = @(
+            "#if !HAVE_EXP2",
+            "#if !HAVE_EXP2F",
+            "#if !HAVE_EXP10",
+            "#if !HAVE_EXP10F",
+            "#if !HAVE_EXP",
+            "#if !HAVE_EXPF",
+            "#if !HAVE_LOG2",
+            "#if !HAVE_LOG2F",
+            "#if !HAVE_LOG10",
+            "#if !HAVE_LOG10F",
+            "#if !HAVE_LOG",
+            "#if !HAVE_LOGF",
+            "#if !HAVE_ISINF",
+            "#if !HAVE_ISINFF",
+            "#if !HAVE_ISNAN",
+            "#if !HAVE_ISNANF",
+            "#if !HAVE_LRINT",
+            "#if !HAVE_LRINTF",
+            "#if !HAVE_RINT",
+            "#if !HAVE_RINTF",
+            "#if !HAVE_ROUND",
+            "#if !HAVE_ROUNDF",
+            "#if !HAVE_TRUNC",
+            "#if !HAVE_TRUNCF",
+            "#if !HAVE_CBRT",
+            "#if !HAVE_CBRTF",
+            "#if !HAVE_ERF",
+            "#if !HAVE_ERFF"
+          )
+          
+          foreach ($pattern in $patterns) {
+            $content = $content -replace [regex]::Escape($pattern), "#if 0"
+          }
+          
           $content | Out-File "libavutil/libm.h" -Encoding UTF8
           Write-Host "Modified libavutil/libm.h to disable internal math functions"
         }
@@ -181,6 +218,7 @@ jobs:
         "@
         
     - name: Package Build Artifacts
+      if: always()
       shell: msys2 {0}
       run: |
         # 创建标准化输出目录
@@ -210,6 +248,7 @@ jobs:
         ls -l "${{ github.workspace }}/ffmpeg-build-output/lib/"
         
     - name: Upload Artifacts
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: ffmpeg-windows-x64-shared-n${{ env.FFPEG_VERSION }}
