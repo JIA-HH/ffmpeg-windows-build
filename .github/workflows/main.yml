@@ -1,47 +1,109 @@
-name: Build FFmpeg
-on: [push, pull_request]
+name: FFmpeg Windows Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
-      # 步骤1：检出你自己的仓库代码（包含编译脚本）
-      - name: Checkout repo code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
 
-      # 步骤2：安装MSYS2环境（如果你的编译基于MSYS2）
-      - name: Setup MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            git
-            make
-            gcc
-            g++
-            yasm
-            nasm
-            pkg-config
-            libx264-dev
-            # 其他依赖（参考之前的依赖列表）
+    - name: Set up MSYS2 & Install Dependencies
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: mingw64
+        update: true
+        install: >-
+          base-devel
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-nasm
+          mingw-w64-x86_64-yasm
+          mingw-w64-x86_64-cmake
+          mingw-w64-x86_64-libx264
+          git
+          pkg-config
 
-      # 步骤3：克隆FFmpeg源码到编译脚本预期的目录（关键！）
-      - name: Clone FFmpeg source (n5.1.4)
-        shell: msys2 {0}
-        run: |
-          # 切换到编译脚本所在目录（根据你的仓库结构调整，比如脚本在根目录就用cd $GITHUB_WORKSPACE）
-          cd $GITHUB_WORKSPACE
-          # 克隆FFmpeg源码，切换到n5.1.4版本
-          git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg
-          cd ffmpeg
-          git checkout n5.1.4
-          cd ..
+    # 缓存FFmpeg源码，避免每次重复克隆（核心优化）
+    - name: Cache FFmpeg Source (n5.1.4)
+      id: cache-ffmpeg
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/ffmpeg
+        key: ffmpeg-source-n5.1.4-${{ runner.os }}-${{ hashFiles('**/build.yml') }}
+        restore-keys: |
+          ffmpeg-source-n5.1.4-${{ runner.os }}-
 
-      # 步骤4：执行你的编译脚本
-      - name: Build FFmpeg
-        shell: msys2 {0}
-        run: |
-          cd $GITHUB_WORKSPACE
-          # 执行你的编译命令（比如之前的cross_compile_ffmpeg.sh）
-          ./cross_compile_ffmpeg.sh --compiler-flavors=win64 --build-ffmpeg-shared=y --build-ffmpeg-static=n
+    # 仅缓存未命中时克隆源码（第一次运行/版本变更时执行）
+    - name: Clone FFmpeg Source (n5.1.4)
+      if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+      shell: msys2 {0}
+      run: |
+        cd $GITHUB_WORKSPACE
+        git clone --depth=1 --branch=n5.1.4 https://github.com/FFmpeg/FFmpeg.git ffmpeg
+        # 验证版本是否正确
+        cd ffmpeg && git rev-parse --short HEAD && cd ..
+
+    - name: Build FFmpeg
+      shell: msys2 {0}
+      run: |
+        cd $GITHUB_WORKSPACE/ffmpeg
+        
+        # 清理旧编译产物（避免缓存干扰）
+        make clean || true
+        
+        # 配置构建选项
+        ./configure \
+          --prefix="${{ github.workspace }}/ffmpeg-install" \
+          --target-os=mingw32 \
+          --arch=x86_64 \
+          --enable-gpl \
+          --enable-version3 \
+          --enable-shared \
+          --enable-static \
+          --enable-libx264 \
+          --enable-w32threads \
+          --enable-postproc \
+          --enable-nonfree \
+          --disable-programs \
+          --disable-doc \
+          --extra-cflags="-I/mingw64/include" \
+          --extra-ldflags="-L/mingw64/lib"
+        
+        # 编译（自动适配CPU核心数）
+        make -j$(nproc)
+        
+        # 安装到指定目录
+        make install
+
+    - name: Package Build Artifacts
+      shell: msys2 {0}
+      run: |
+        # 创建标准化输出目录
+        mkdir -p "${{ github.workspace }}/ffmpeg-build-output/bin"
+        mkdir -p "${{ github.workspace }}/ffmpeg-build-output/lib"
+        mkdir -p "${{ github.workspace }}/ffmpeg-build-output/include"
+        
+        # 复制编译产物
+        cp -f "${{ github.workspace }}/ffmpeg-install/bin/"*.dll "${{ github.workspace }}/ffmpeg-build-output/bin/" 2>/dev/null || true
+        cp -f "${{ github.workspace }}/ffmpeg-install/lib/"*.lib "${{ github.workspace }}/ffmpeg-build-output/lib/" 2>/dev/null || true
+        cp -f "${{ github.workspace }}/ffmpeg-install/lib/"*.dll.a "${{ github.workspace }}/ffmpeg-build-output/lib/" 2>/dev/null || true
+        cp -r "${{ github.workspace }}/ffmpeg-install/include/"* "${{ github.workspace }}/ffmpeg-build-output/include/" 2>/dev/null || true
+        
+        # 验证产物是否存在
+        ls -l "${{ github.workspace }}/ffmpeg-build-output/bin/"
+        ls -l "${{ github.workspace }}/ffmpeg-build-output/lib/"
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ffmpeg-windows-x64-shared-n5.1.4
+        path: ${{ github.workspace }}/ffmpeg-build-output/
+        retention-days: 90
