@@ -102,7 +102,17 @@ jobs:
           echo "x264 source directory already exists, skipping clone"
         fi
         
+    - name: Cache x264 Build
+      id: cache-x264-build
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/x264-install
+        key: x264-build-${{ runner.os }}-${{ hashFiles('**/msvc-build.yaml') }}
+        restore-keys: |
+          x264-build-${{ runner.os }}-
+          
     - name: Build x264 with MSVC
+      if: steps.cache-x264-build.outputs.cache-hit != 'true'
       continue-on-error: true
       shell: msys2 {0}
       run: |
@@ -121,7 +131,17 @@ jobs:
         make -j$(nproc)
         make install
         
+    - name: Cache FFmpeg Build
+      id: cache-ffmpeg-build
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/ffmpeg-install
+        key: ffmpeg-build-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-${{ hashFiles('**/msvc-build.yaml') }}
+        restore-keys: |
+          ffmpeg-build-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
+          
     - name: Build FFmpeg with MSVC
+      if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
       continue-on-error: true
       shell: powershell
       run: |
@@ -141,46 +161,23 @@ jobs:
         
         # 修改libavutil/libm.h文件，禁用内部数学函数实现
         if (Test-Path "libavutil/libm.h") {
-          $content = Get-Content "libavutil/libm.h" -Raw
+          # 先备份原文件
+          Copy-Item "libavutil/libm.h" "libavutil/libm.h.bak" -Force
           
-          # 使用更精确的方法，逐个替换已知的条件编译语句
-          $patterns = @(
-            "#if !HAVE_EXP2",
-            "#if !HAVE_EXP2F",
-            "#if !HAVE_EXP10",
-            "#if !HAVE_EXP10F",
-            "#if !HAVE_EXP",
-            "#if !HAVE_EXPF",
-            "#if !HAVE_LOG2",
-            "#if !HAVE_LOG2F",
-            "#if !HAVE_LOG10",
-            "#if !HAVE_LOG10F",
-            "#if !HAVE_LOG",
-            "#if !HAVE_LOGF",
-            "#if !HAVE_ISINF",
-            "#if !HAVE_ISINFF",
-            "#if !HAVE_ISNAN",
-            "#if !HAVE_ISNANF",
-            "#if !HAVE_LRINT",
-            "#if !HAVE_LRINTF",
-            "#if !HAVE_RINT",
-            "#if !HAVE_RINTF",
-            "#if !HAVE_ROUND",
-            "#if !HAVE_ROUNDF",
-            "#if !HAVE_TRUNC",
-            "#if !HAVE_TRUNCF",
-            "#if !HAVE_CBRT",
-            "#if !HAVE_CBRTF",
-            "#if !HAVE_ERF",
-            "#if !HAVE_ERFF"
-          )
+          # 使用sed进行精确替换，避免PowerShell正则表达式的问题
+          bash -c "sed -i 's/^[[:space:]]*#[[:space:]]*if[[:space:]]*![[:space:]]*HAVE_[[:alnum:]_]*$/#if 0/g' libavutil/libm.h"
           
-          foreach ($pattern in $patterns) {
-            $content = $content -replace [regex]::Escape($pattern), "#if 0"
-          }
-          
-          $content | Out-File "libavutil/libm.h" -Encoding UTF8
           Write-Host "Modified libavutil/libm.h to disable internal math functions"
+          
+          # 验证修改是否正确
+          $invalidLines = Select-String -Path "libavutil/libm.h" -Pattern "#if 0[A-Z]" -AllMatches
+          if ($invalidLines) {
+            Write-Host "Error: Found invalid patterns after replacement:"
+            $invalidLines | ForEach-Object { Write-Host $_.Line }
+            Write-Host "Restoring backup file"
+            Copy-Item "libavutil/libm.h.bak" "libavutil/libm.h" -Force
+            exit 1
+          }
         }
         
         # 使用bash执行configure和make命令
