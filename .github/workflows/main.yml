@@ -49,7 +49,7 @@ jobs:
     - name: Setup Visual Studio Environment
       uses: ilammy/msvc-dev-cmd@v1
       
-    - name: Cache FFmpeg Source (n${{ env.FFPEG_VERSION }})
+    - name: Cache FFmpeg Source 
       id: cache-ffmpeg
       uses: actions/cache@v4
       with:
@@ -58,7 +58,7 @@ jobs:
         restore-keys: |
           ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
           
-    - name: Clone FFmpeg Source (n${{ env.FFPEG_VERSION }})
+    - name: Clone FFmpeg Source 
       if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
       shell: msys2 {0}
       run: |
@@ -121,49 +121,64 @@ jobs:
         make install
         
     - name: Build FFmpeg with MSVC
-      shell: msys2 {0}
+      shell: powershell
       run: |
         # 设置MSVC环境变量
-        export CC=cl
-        export CXX=cl
-        export AR=lib
-        export RANLIB=: 
-        export STRIP=: 
+        $env:CC = "cl"
+        $env:CXX = "cl"
+        $env:LD = "link"
+        $env:AR = "lib"
+        $env:RANLIB = "echo" 
+        $env:STRIP = "echo"
         
-        cd $GITHUB_WORKSPACE/ffmpeg
+        # 设置x264库路径
+        $env:LIB = "${{ github.workspace }}\x264-install\lib;" + $env:LIB
+        $env:INCLUDE = "${{ github.workspace }}\x264-install\include;" + $env:INCLUDE
         
-        # 清理旧编译产物
-        make clean || true
+        cd "${{ github.workspace }}/ffmpeg"
         
-        # MSVC 配置
-        ./configure \
-          --prefix="${{ github.workspace }}/ffmpeg-install" \
-          --target-os=win32 \
-          --arch=x86_64 \
-          --toolchain=msvc \
-          --enable-cross-compile \
-          --enable-gpl \
-          --enable-version3 \
-          --enable-shared \
-          --enable-static \
-          --enable-libx264 \
-          --extra-cflags="-I${{ github.workspace }}/x264-install/include" \
-          --extra-ldflags="-L${{ github.workspace }}/x264-install/lib" \
-          --pkg-config-flags="--static" \
-          --enable-w32threads \
-          --enable-postproc \
-          --enable-nonfree \
-          --disable-programs \
-          --disable-doc \
-          --extra-cflags="-MD" \
-          --enable-pic \
-          --extra-ldexeflags="-static-libgcc"
+        # 修改libavutil/libm.h文件，禁用内部数学函数实现
+        if (Test-Path "libavutil/libm.h") {
+          $content = Get-Content "libavutil/libm.h" -Raw
+          # 将所有#if !HAVE_XXX条件编译语句替换为#if 0
+          $content = $content -replace '#if !HAVE_([A-Z_]+)', '#if 0'
+          $content | Out-File "libavutil/libm.h" -Encoding UTF8
+          Write-Host "Modified libavutil/libm.h to disable internal math functions"
+        }
         
-        # 编译
-        make -j$(nproc)
-        
-        # 安装
-        make install
+        # 使用bash执行configure和make命令
+        bash -c @"
+          # 清理旧编译产物
+          make clean || true
+          
+          # MSVC 配置
+          ./configure \
+            --prefix='${{ github.workspace }}/ffmpeg-install' \
+            --target-os=win32 \
+            --arch=x86_64 \
+            --toolchain=msvc \
+            --enable-cross-compile \
+            --enable-gpl \
+            --enable-version3 \
+            --enable-shared \
+            --enable-static \
+            --enable-libx264 \
+            --extra-cflags='-I${{ github.workspace }}/x264-install/include -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1' \
+            --extra-ldflags='-L${{ github.workspace }}/x264-install/lib' \
+            --pkg-config-flags='--static' \
+            --enable-w32threads \
+            --enable-postproc \
+            --enable-nonfree \
+            --disable-programs \
+            --disable-doc \
+            --extra-cflags='-MD'
+            
+          # 编译
+          make -j$(nproc)
+          
+          # 安装
+          make install
+        "@
         
     - name: Package Build Artifacts
       shell: msys2 {0}
