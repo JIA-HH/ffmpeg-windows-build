@@ -121,8 +121,16 @@ jobs:
         make install
         
     - name: Build FFmpeg with MSVC
+      shell: msys2 {0}
       run: |
-        cd "${{ github.workspace }}/ffmpeg"
+        # 设置MSVC环境变量
+        export CC=cl
+        export CXX=cl
+        export AR=lib
+        export RANLIB=: 
+        export STRIP=: 
+        
+        cd $GITHUB_WORKSPACE/ffmpeg
         
         # 清理旧编译产物
         make clean || true
@@ -152,7 +160,7 @@ jobs:
           --extra-ldexeflags="-static-libgcc"
         
         # 编译
-        make -j${{ env.NUMBER_OF_PROCESSORS }}
+        make -j$(nproc)
         
         # 安装
         make install
