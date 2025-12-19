@@ -1,4 +1,4 @@
-name: FFmpeg x264
+name: FFmpeg Windows Build
 
 on:
   push:
@@ -107,3 +107,29 @@ jobs:
         name: ffmpeg-windows-x64-shared-n5.1.4
         path: ${{ github.workspace }}/ffmpeg-build-output/
         retention-days: 90
+
+    - name: Package Build Artifacts as ZIP
+      run: |
+        cd ${{ github.workspace }}/ffmpeg-build-output
+        powershell Compress-Archive -Path * -DestinationPath ../ffmpeg-windows-x64-shared-n5.1.4.zip
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: n5.1.4-${{ github.run_number }}
+        release_name: FFmpeg Windows Build v5.1.4 #${{ github.run_number }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ github.workspace }}/ffmpeg-windows-x64-shared-n5.1.4.zip
+        asset_name: ffmpeg-windows-x64-shared-n5.1.4.zip
+        asset_content_type: application/zip
