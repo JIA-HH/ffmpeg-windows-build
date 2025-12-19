@@ -1,4 +1,4 @@
-name: FFmpeg Windows Build
+name: FFmpeg x264
 
 on:
   push:
