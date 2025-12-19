@@ -28,7 +28,16 @@ jobs:
           mingw-w64-x86_64-yasm
           mingw-w64-x86_64-cmake
           git
-
+    - name: Clone FFmpeg source (n5.1.4)
+      shell: msys2 {0}
+      run: |
+        # 切换到编译脚本所在目录（根据你的仓库结构调整，比如脚本在根目录就用cd $GITHUB_WORKSPACE）
+        cd $GITHUB_WORKSPACE
+        # 克隆FFmpeg源码，切换到n5.1.4版本
+        git clone https://github.com/FFmpeg/FFmpeg.git ffmpeg
+        cd ffmpeg
+        git checkout n5.1.4
+        cd ..
     - name: Build FFmpeg
       shell: msys2 {0}
       run: |
