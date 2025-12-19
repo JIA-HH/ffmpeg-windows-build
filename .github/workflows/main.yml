@@ -32,7 +32,7 @@ jobs:
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
-        update: false
+        update: true
         install: >-
           base-devel
           git
@@ -40,6 +40,11 @@ jobs:
           wget
           unzip
           yasm
+          gcc
+          pkg-config
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-pkg-config
       
     - name: Setup Visual Studio Environment
       uses: ilammy/msvc-dev-cmd@v1
@@ -87,21 +92,29 @@ jobs:
       shell: msys2 {0}
       run: |
         cd $GITHUB_WORKSPACE
-        git clone --depth=1 https://code.videolan.org/videolan/x264.git x264
-        # 验证克隆是否成功
-        cd x264 && git rev-parse --short HEAD && cd ..
+        # 如果目录不存在或者为空，则进行克隆
+        if [ ! -d "x264" ] || [ -z "$(ls -A x264)" ]; then
+          rm -rf x264
+          git clone --depth=1 https://code.videolan.org/videolan/x264.git x264
+          # 验证克隆是否成功
+          cd x264 && git rev-parse --short HEAD && cd ..
+        else
+          echo "x264 source directory already exists, skipping clone"
+        fi
         
-    - name: Build x264
+    - name: Build x264 with MSVC
       shell: msys2 {0}
       run: |
         cd $GITHUB_WORKSPACE/x264
         
-        # Configure and build x264
+        # 使用MinGW构建x264，因为我们需要与MSVC兼容的库
         ./configure \
           --prefix="${{ github.workspace }}/x264-install" \
           --host=x86_64-w64-mingw32 \
           --enable-static \
-          --enable-shared
+          --enable-shared \
+          --extra-cflags="-O2" \
+          --extra-ldflags="-static-libgcc"
           
         make -j$(nproc)
         make install
