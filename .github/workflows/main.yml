@@ -114,6 +114,7 @@ jobs:
           --enable-static \
           --enable-shared \
           --extra-cflags="-O2" \
+          --disable-asm \
           --extra-ldflags="-static-libgcc"
           
         make -j$(nproc)
