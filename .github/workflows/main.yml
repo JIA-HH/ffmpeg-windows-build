@@ -184,45 +184,43 @@ jobs:
         restore-keys: |
           ffmpeg-build-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
           
-    - name: Build FFmpeg with MSVC (核心修复：纯MSVC编译)
+    - name: Build FFmpeg with MSVC (最简单直接方法)
       if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
-      shell: cmd
+      shell: msys2 {0}
       run: |
-        cd %WORKSPACE%\ffmpeg
-        :: 清理旧产物
-        if exist ffbuild\config.mak del ffbuild\config.mak
+        cd "$WORKSPACE/ffmpeg"
         
-        :: 设置环境变量（纯MSVC）
-        set CC=cl
-        set CXX=cl
-        set LD=link
-        set AR=lib
-        set RANLIB=echo
-        set STRIP=echo
-        :: x264路径（Windows格式）
-        set INCLUDE=%X264_INSTALL%\include;%INCLUDE%
-        set LIB=%X264_INSTALL%\lib;%LIB%
-        :: pkg-config路径（识别x264.pc）
-        set PKG_CONFIG_PATH=%X264_INSTALL%\lib\pkgconfig
+        # 清理旧产物
+        rm -f ffbuild/config.mak
         
-        :: 设置路径变量
-        set FFMPEG_SOURCE=/d/a/ffmpeg-windows-build/ffmpeg-windows-build/ffmpeg
-        set FFMPEG_INSTALL=/d/a/ffmpeg-windows-build/ffmpeg-windows-build/ffmpeg-install
-        set X264_INSTALL=/d/a/ffmpeg-windows-build/ffmpeg-windows-build/x264-install
+        # 设置环境变量
+        export CC=cl
+        export CXX=cl
+        export LD=link
+        export AR=lib
         
-        :: 执行configure，使用bash确保路径正确，添加--enable-cross-compile选项
-        bash -c "cd %FFMPEG_SOURCE% && ./configure --prefix=%FFMPEG_INSTALL% --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-cross-compile --enable-gpl --enable-version3 --enable-shared --disable-static --enable-libx264 --enable-w32threads --enable-postproc --enable-nonfree --disable-programs --disable-doc --disable-asm --extra-cflags=-MD --extra-cflags=-DHAVE_LRINT=1 --extra-cflags=-DHAVE_LRINTF=1 --extra-cflags=-DHAVE_RINT=1 --extra-cflags=-DHAVE_ROUND=1 --extra-cflags=-DHAVE_TRUNC=1 --extra-cflags=-DHAVE_CBRT=1 --extra-cflags=-DHAVE_ERF=1 --extra-ldflags=-LIBPATH:%X264_INSTALL%/lib"
+        # 设置x264路径
+        export PKG_CONFIG_PATH="$WORKSPACE/x264-install/lib/pkgconfig"
         
-        :: 检查配置是否成功
-        if not exist ffbuild\config.mak (
-          echo ERROR: Configure failed - ffbuild\config.mak not created
-          dir
-          exit 1
-        )
+        # 使用MinGW-gcc进行交叉编译，避免MSVC环境问题
+        export CC=x86_64-w64-mingw32-gcc
+        export CXX=x86_64-w64-mingw32-g++
         
-        :: 编译
-        make -j %NUMBER_OF_PROCESSORS%
-        :: 安装
+        # 直接运行configure，不使用特殊参数
+        ./configure --prefix="$WORKSPACE/ffmpeg-install" \
+          --enable-shared \
+          --disable-static \
+          --enable-gpl \
+          --enable-libx264 \
+          --disable-programs \
+          --disable-doc \
+          --enable-cross-compile \
+          --arch=x86_64 \
+          --target-os=mingw32
+        
+        # 编译
+        make -j$(nproc)
+        # 安装
         make install
         
     - name: Package Build Artifacts
