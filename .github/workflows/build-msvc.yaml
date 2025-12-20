@@ -179,6 +179,9 @@ jobs:
         set RANLIB=echo
         set STRIP=echo
         
+        :: 确保bash能识别MSVC工具（重要：直接在bash命令中传递环境变量）
+        set BASH_ENV="CC=cl CXX=cl LD=link AR=lib"
+        
         :: 暂时不使用x264，先解决FFmpeg本身的MSVC编译问题
         echo 暂时不使用x264，专注于FFmpeg本身的MSVC编译问题
         
@@ -197,7 +200,8 @@ jobs:
         
         :: FFmpeg Configure（纯MSVC参数，无MinGW/cross-compile，暂时不使用x264）
         :: 使用bash来执行configure脚本，但在MSVC环境中
-        bash -c "./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1' --disable-examples"
+        :: 显式传递所有环境变量给bash
+        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
         
         :: 检查配置是否成功
         if not exist ffbuild\config.mak (
@@ -212,7 +216,7 @@ jobs:
         make -j %NUMBER_OF_PROCESSORS% || (
           echo 标准编译失败，尝试禁用问题组件后重新编译...
           make clean
-          bash -c "./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --disable-examples --disable-avdevice --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
+          bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --disable-avdevice --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
           make -j %NUMBER_OF_PROCESSORS%
         )
         make install
