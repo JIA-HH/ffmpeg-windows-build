@@ -217,18 +217,27 @@ jobs:
         echo 检查config.mak文件前10行内容：
         powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 10"
         
-        :: 修复：直接检查并显示config.mak前5行内容，以识别问题
+        :: 修复：使用CMD原生命令检查和修复config.mak文件
         echo 显示config.mak文件前5行内容：
-        powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 5 | ForEach-Object { \"Line $($_.ReadCount): $_\" }"
+        for /f "usebackq tokens=1* delims=:" %%a in (`findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"`) do echo Line %%a: %%b
         
-        :: 修复：使用更简单的方法处理config.mak文件，确保格式正确
+        :: 使用CMD原生命令修复config.mak文件格式问题
         echo 修复config.mak文件格式问题：
-        powershell -Command "$content = Get-Content ffbuild\config.mak; $content | ForEach-Object { if($_ -match '^(\w+)\s*=\s*(.*)$') { \"$($matches[1])=$($matches[2])\" } else { $_ } } | Set-Content ffbuild\config_fixed.mak"
+        :: 创建临时修复脚本
+        echo @echo off > fix_config.bat
+        echo setlocal enabledelayedexpansion >> fix_config.bat
+        echo set "input=ffbuild\config.mak" >> fix_config.bat
+        echo set "output=ffbuild\config_fixed.mak" >> fix_config.bat
+        echo (for /f "usebackq tokens=*" %%a in ("%input%") do ( >> fix_config.bat
+        echo   set "line=%%a" >> fix_config.bat
+        echo   echo !line! >> fix_config.bat
+        echo )) ^> "%output%" >> fix_config.bat
+        call fix_config.bat
         move /Y ffbuild\config_fixed.mak ffbuild\config.mak
         
         :: 再次验证修复后的文件
         echo 修复后的config.mak文件前5行：
-        powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 5 | ForEach-Object { \"Line $($_.ReadCount): $_\" }"
+        for /f "usebackq tokens=1* delims=:" %%a in (`findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"`) do echo Line %%a: %%b
         
         :: MSVC编译+安装（避免awk语法错误）
         nmake || (
@@ -239,14 +248,23 @@ jobs:
           :: 使用更保守的配置重新编译（最小配置）
           bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --disable-everything --enable-avutil --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
           
-          :: 再次检查并修复config.mak文件（使用相同的方法）
+          :: 再次检查并修复config.mak文件（使用CMD原生命令）
           echo 检查并修复config.mak文件格式问题：
-          powershell -Command "$content = Get-Content ffbuild\config.mak; $content | ForEach-Object { if($_ -match '^(\w+)\s*=\s*(.*)$') { \"$($matches[1])=$($matches[2])\" } else { $_ } } | Set-Content ffbuild\config_fixed.mak"
+          :: 创建临时修复脚本
+          echo @echo off > fix_config.bat
+          echo setlocal enabledelayedexpansion >> fix_config.bat
+          echo set "input=ffbuild\config.mak" >> fix_config.bat
+          echo set "output=ffbuild\config_fixed.mak" >> fix_config.bat
+          echo (for /f "usebackq tokens=*" %%a in ("%input%") do ( >> fix_config.bat
+          echo   set "line=%%a" >> fix_config.bat
+          echo   echo !line! >> fix_config.bat
+          echo )) ^> "%output%" >> fix_config.bat
+          call fix_config.bat
           move /Y ffbuild\config_fixed.mak ffbuild\config.mak
           
           :: 验证修复后的文件
           echo 修复后的config.mak文件前5行：
-          powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 5 | ForEach-Object { \"Line $($_.ReadCount): $_\" }"
+          for /f "usebackq tokens=1* delims=:" %%a in (`findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"`) do echo Line %%a: %%b
           
           :: 使用nmake编译（避免make在Windows下的问题）
           nmake
