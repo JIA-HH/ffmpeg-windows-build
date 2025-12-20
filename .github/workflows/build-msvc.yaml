@@ -41,8 +41,10 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
-      
-    # 修复1：MSYS2缓存路径（匹配setup-msys2默认路径）+ 仅安装辅助工具
+
+    # ========== 环境设置 ==========
+    
+    # MSYS2 缓存和辅助工具设置
     - name: Cache MSYS2 Dependencies
       id: cache-msys2
       uses: actions/cache@v4
@@ -67,16 +69,16 @@ jobs:
           mingw-w64-x86_64-yasm
           flex
           bison
-      
-    # 修复2：MSVC环境明确初始化（指定版本+工具集）
+
+    # MSVC 环境设置
     - name: Setup Visual Studio Environment (纯MSVC核心环境)
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
         vsversion: 2022
         spectre: false
-        
-    # 修复3：MSVC编译依赖缓存（nasm/cmake）
+
+    # MSVC 编译依赖缓存和安装
     - name: Cache MSVC编译依赖
       id: cache-msvc-deps
       uses: actions/cache@v4
@@ -96,6 +98,8 @@ jobs:
         refreshenv  # 刷新环境变量，确保nasm/cmake可用
         
     # ========== x264 纯MSVC编译 (可选) ==========
+    
+    # x264 源码缓存
     - name: Cache x264 Source
       id: cache-x264-source
       if: github.event.inputs.build_x264 == 'true'
@@ -105,7 +109,8 @@ jobs:
         key: x264-source-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
         restore-keys: |
           x264-source-${{ runner.os }}-
-          
+
+    # x264 源码下载
     - name: Clone x264 Source
       if: steps.cache-x264-source.outputs.cache-hit != 'true' && github.event.inputs.build_x264 == 'true'
       shell: cmd
@@ -114,7 +119,8 @@ jobs:
         rmdir /s /q x264 2>nul || true
         git clone --depth=1 https://code.videolan.org/videolan/x264.git x264
         cd x264 && git rev-parse --short HEAD && cd ..
-        
+
+    # x264 编译产物缓存
     - name: Cache x264 Build
       id: cache-x264-build
       if: github.event.inputs.build_x264 == 'true'
@@ -124,8 +130,8 @@ jobs:
         key: x264-build-msvc-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
         restore-keys: |
           x264-build-msvc-${{ runner.os }}-
-          
-    # 修复x264编译：使用纯MSVC方式编译x264
+
+    # x264 编译构建
     - name: Build x264 with MSVC
       if: steps.cache-x264-build.outputs.cache-hit != 'true' && github.event.inputs.build_x264 == 'true'
       shell: cmd
@@ -143,6 +149,8 @@ jobs:
         make install
         
     # ========== FFmpeg 纯MSVC编译 ==========
+    
+    # FFmpeg 源码缓存
     - name: Cache FFmpeg Source
       id: cache-ffmpeg-source
       uses: actions/cache@v4
@@ -151,7 +159,8 @@ jobs:
         key: ffmpeg-source-n${{ env.FFMPEG_VERSION }}-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
         restore-keys: |
           ffmpeg-source-n${{ env.FFMPEG_VERSION }}-${{ runner.os }}-
-          
+
+    # FFmpeg 源码下载
     - name: Clone FFmpeg Source 
       if: steps.cache-ffmpeg-source.outputs.cache-hit != 'true'
       shell: cmd
@@ -160,8 +169,8 @@ jobs:
         rmdir /s /q ffmpeg 2>nul || true
         git clone --depth=1 --branch=n%FFMPEG_VERSION% https://github.com/FFmpeg/FFmpeg.git ffmpeg
         cd ffmpeg && git rev-parse --short HEAD && cd ..
-        
-    # 保留：修复libm.h数学函数定义（MSVC兼容）
+
+    # FFmpeg 数学函数兼容性修复
     - name: Patch FFmpeg libm.h
       shell: msys2 {0}
       run: |
@@ -170,7 +179,8 @@ jobs:
         sed -i 's/#if !HAVE_/#if 0 \/\/ disabled for MSVC - #if !HAVE_/g' libm.h
         sed -i 's/#elif !HAVE_/#elif 0 \/\/ disabled for MSVC - #elif !HAVE_/g' libm.h
         cat libm.h | grep -E "#if 0.*HAVE_" | head -5
-        
+
+    # FFmpeg 编译产物缓存
     - name: Cache FFmpeg Build
       id: cache-ffmpeg-build
       uses: actions/cache@v4
@@ -179,8 +189,8 @@ jobs:
         key: ffmpeg-build-n${{ env.FFMPEG_VERSION }}-msvc-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
         restore-keys: |
           ffmpeg-build-n${{ env.FFMPEG_VERSION }}-msvc-${{ runner.os }}-
-          
-    # 核心修复：FFmpeg纯MSVC编译（cl.exe/link.exe）
+
+    # FFmpeg 核心编译
     - name: Build FFmpeg with MSVC (纯MSVC工具链)
       if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
       shell: cmd
@@ -208,7 +218,7 @@ jobs:
           echo 跳过x264支持
         )
         
-        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --enable-gpl %X264_FLAGS% --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1' --disable-asm --disable-inline-asm"
+        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --enable-gpl %X264_FLAGS% --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1' --disable-asm --disable-inline-asm --disable-x86asm --disable-symver"
         
         :: 检查配置是否成功
         if not exist ffbuild\config.mak (
@@ -236,9 +246,12 @@ jobs:
         nmake install
         
     # ========== 产物打包/上传/发布 ==========
+    
+    # 构建产物打包
     - name: Package Build Artifacts
       shell: cmd
       run: |
+        :: 创建输出目录结构
         mkdir %WORKSPACE%\ffmpeg-build-output\bin 2>nul || true
         mkdir %WORKSPACE%\ffmpeg-build-output\lib 2>nul || true
         mkdir %WORKSPACE%\ffmpeg-build-output\include 2>nul || true
@@ -255,7 +268,7 @@ jobs:
           copy /Y %X264_INSTALL%\lib\*.lib %WORKSPACE%\ffmpeg-build-output\lib\ 2>nul || echo x264 LIB not found, skipping
         )
         
-        :: 复制许可证
+        :: 复制许可证文件
         copy /Y %WORKSPACE%\ffmpeg\LICENSE.md %WORKSPACE%\ffmpeg-build-output\licenses\FFmpeg.txt 2>nul || true
         if "${{ github.event.inputs.build_x264 }}" == "true" (
           copy /Y %WORKSPACE%\x264\COPYING %WORKSPACE%\ffmpeg-build-output\licenses\x264.txt 2>nul || true
@@ -265,19 +278,22 @@ jobs:
         echo 编译产物:
         dir %WORKSPACE%\ffmpeg-build-output\bin
         dir %WORKSPACE%\ffmpeg-build-output\lib
-        
+
+    # 上传构建产物到GitHub Artifacts
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: ffmpeg-windows-x64-shared-n${{ env.FFMPEG_VERSION }}
         path: ${{ env.WORKSPACE }}\ffmpeg-build-output\
         retention-days: 90
-        
+
+    # 打包为ZIP文件
     - name: Package as ZIP
       shell: powershell
       run: |
         Compress-Archive -Path ${{ env.WORKSPACE }}\ffmpeg-build-output\* -DestinationPath ${{ env.WORKSPACE }}\ffmpeg-windows-x64-shared-n${{ env.FFMPEG_VERSION }}.zip -Force
-        
+
+    # 创建GitHub Release
     - name: Create Release
       id: create_release
       if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
