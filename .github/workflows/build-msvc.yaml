@@ -52,7 +52,7 @@ jobs:
         msystem: MINGW64
         update: ${{ steps.cache-msys2.outputs.cache-hit != 'true' }}
         install: >-
-          git make wget unzip sed pkg-config mingw-w64-x86_64-yasm mingw-w64-x86_64-flex mingw-w64-x86_64-bison
+          git make wget unzip sed pkg-config mingw-w64-x86_64-yasm
       
     - name: Setup Visual Studio Environment
       uses: ilammy/msvc-dev-cmd@v1
