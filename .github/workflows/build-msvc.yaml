@@ -1,4 +1,4 @@
-name: MSVC
+name: FFmpeg with MSVC
 
 on:
   push:
@@ -69,7 +69,7 @@ jobs:
       with:
         arch: x64
         vsversion: 2022
-        toolset: latest  # 明确VS2022工具集版本，避免"latest"找不到目录
+        # toolset: latest  # 明确VS2022工具集版本，避免"latest"找不到目录
         spectre: false
         
     # 修复3：MSVC编译依赖缓存（nasm/cmake）
