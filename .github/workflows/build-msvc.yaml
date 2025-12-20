@@ -166,47 +166,47 @@ jobs:
     # 核心修复：FFmpeg纯MSVC编译（cl.exe/link.exe）
     - name: Build FFmpeg with MSVC (纯MSVC工具链)
       if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
-      shell: cmd
+      shell: msys2 {0}
       run: |
-        cd %WORKSPACE%\ffmpeg
-        del ffbuild\config.mak 2>nul || true
+        cd "$WORKSPACE/ffmpeg"
+        rm -f ffbuild/config.mak
         
-        :: 纯MSVC环境变量（指定cl/link/lib等MSVC工具）
-        set CC=cl
-        set CXX=cl
-        set LD=link
-        set AR=lib
-        set RANLIB=echo
-        set STRIP=echo
+        # 导入MSVC环境变量（关键步骤：MSYS2环境需要正确继承MSVC工具链）
+        source /c/Program\ Files/Microsoft\ Visual\ Studio/2022/Enterprise/VC/Auxiliary/Build/vcvarsall.bat x64 >/dev/null 2>&1 || true
         
-        :: 暂时不使用x264，先解决FFmpeg本身的MSVC编译问题
+        # 纯MSVC环境变量（指定cl/link/lib等MSVC工具）
+        export CC=cl
+        export CXX=cl
+        export LD=link
+        export AR=lib
+        export RANLIB=echo
+        export STRIP=echo
+        
+        # 暂时不使用x264，先解决FFmpeg本身的MSVC编译问题
         echo 暂时不使用x264，专注于FFmpeg本身的MSVC编译问题
         
-        :: 手动刷新MSVC环境（兜底，确保工具链生效）
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-        
-        :: FFmpeg Configure（纯MSVC参数，无MinGW/cross-compile，暂时不使用x264）
-        ./configure ^
-          --prefix=%FFMPEG_INSTALL% ^
-          --target-os=win32 ^
-          --arch=x86_64 ^
-          --toolchain=msvc ^  # 明确指定MSVC工具链
-          --enable-shared ^
-          --disable-static ^
-          --disable-programs ^
-          --disable-doc ^
-          --disable-asm ^
+        # FFmpeg Configure（纯MSVC参数，无MinGW/cross-compile，暂时不使用x264）
+        ./configure \
+          --prefix="$FFMPEG_INSTALL" \
+          --target-os=win32 \
+          --arch=x86_64 \
+          --toolchain=msvc \
+          --enable-shared \
+          --disable-static \
+          --disable-programs \
+          --disable-doc \
+          --disable-asm \
           --extra-cflags="-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1"
         
-        :: 检查配置是否成功
-        if not exist ffbuild\config.mak (
+        # 检查配置是否成功
+        if [ ! -f ffbuild/config.mak ]; then
           echo ERROR: Configure failed - config.mak not found
-          dir ffbuild
+          ls -la ffbuild/
           exit 1
-        )
+        fi
         
-        :: MSVC编译+安装
-        make -j %NUMBER_OF_PROCESSORS%
+        # 使用MSYS2的make进行编译，但实际使用MSVC工具链
+        make -j$(nproc)
         make install
         
     # ========== 产物打包/上传/发布 ==========
