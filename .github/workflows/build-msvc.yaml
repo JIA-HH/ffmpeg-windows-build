@@ -215,30 +215,8 @@ jobs:
 
         # FFmpeg Configure（纯MSVC参数，最小配置）
         Write-Host "开始配置FFmpeg..."
-        bash -c "
-            export CC=cl
-            export CXX=cl
-            export LD=link
-            export AR=lib
-            ./configure \
-                --prefix='$ffmpegInstall' \
-                --target-os=win32 \
-                --arch=x86_64 \
-                --toolchain=msvc \
-                --disable-everything \
-                --enable-avcodec \
-                --enable-avformat \
-                --enable-avutil \
-                --enable-swresample \
-                --enable-swscale \
-                --enable-shared \
-                --disable-static \
-                --disable-programs \
-                --disable-doc \
-                --disable-asm \
-                --disable-avdevice \
-                --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'
-        "
+        # 修复：将bash -c的多行字符串改为单行，避免YAML换行语法错误
+        bash -c "export CC=cl; export CXX=cl; export LD=link; export AR=lib; ./configure --prefix='$ffmpegInstall' --target-os=win32 --arch=x86_64 --toolchain=msvc --disable-everything --enable-avcodec --enable-avformat --enable-avutil --enable-swresample --enable-swscale --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --disable-avdevice --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
 
         # 检查配置是否成功
         if (-not (Test-Path -Path ffbuild/config.mak)) {
@@ -256,25 +234,8 @@ jobs:
             # 清理后重新配置（仅保留avutil）
             nmake clean
             Remove-Item -Path ffbuild/config.mak -Force
-            bash -c "
-                export CC=cl
-                export CXX=cl
-                export LD=link
-                export AR=lib
-                ./configure \
-                    --prefix='$ffmpegInstall' \
-                    --target-os=win32 \
-                    --arch=x86_64 \
-                    --toolchain=msvc \
-                    --disable-everything \
-                    --enable-avutil \
-                    --enable-shared \
-                    --disable-static \
-                    --disable-programs \
-                    --disable-doc \
-                    --disable-asm \
-                    --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'
-            "
+            # 修复：重新配置的bash命令也改为单行
+            bash -c "export CC=cl; export CXX=cl; export LD=link; export AR=lib; ./configure --prefix='$ffmpegInstall' --target-os=win32 --arch=x86_64 --toolchain=msvc --disable-everything --enable-avutil --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
             # 重新编译
             nmake
             if ($LASTEXITCODE -ne 0) {
