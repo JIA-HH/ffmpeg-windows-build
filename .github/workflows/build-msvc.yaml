@@ -18,35 +18,40 @@ permissions:
   contents: write
   actions: read
 
+# 环境变量配置：使用更清晰的命名和路径处理
 env:
   FFPEG_VERSION: 5.1.4
   WORKSPACE: ${{ github.workspace }}
-  X264_INSTALL: ${{ github.workspace }}\x264-install
-  FFMPEG_INSTALL: ${{ github.workspace }}\ffmpeg-install
-  # 缓存哈希基准文件（修改脚本时缓存自动更新）
-  CACHE_HASH_FILE: ${{ github.workspace }}/.github/workflows/ffmpeg-msvc.yml
+  # 使用正斜杠避免CMD与bash的路径冲突
+  X264_INSTALL: ${{ github.workspace }}/x264-install
+  FFMPEG_INSTALL: ${{ github.workspace }}/ffmpeg-install
+  # 缓存哈希文件：拆分不同组件的缓存键，提高缓存命中率
+  CACHE_KEY_BASE: ${{ runner.os }}-msvc-2022-x64
+  # 控制是否启用x264（后续恢复时只需改为true）
+  ENABLE_X264: false
 
 jobs:
   build:
     runs-on: windows-latest
     defaults:
       run:
-        shell: powershell
-    
+        shell: powershell # 统一使用powershell，减少shell切换的问题
+
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
-      
-    # 修复1：MSYS2缓存路径（匹配setup-msys2默认路径）+ 仅安装辅助工具
+
+    # 优化1：MSYS2缓存路径与依赖安装优化
     - name: Cache MSYS2 Dependencies
       id: cache-msys2
       uses: actions/cache@v4
       with:
         path: ${{ runner.temp }}/msys64
-        key: msys2-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
+        # 缓存键与MSYS2依赖包绑定，而非工作流文件
+        key: ${{ env.CACHE_KEY_BASE }}-msys2-${{ hashFiles('.github/workflows/msys2-deps.txt') }}
         restore-keys: |
-          msys2-${{ runner.os }}-
-          
+          ${{ env.CACHE_KEY_BASE }}-msys2-
+
     - name: Setup MSYS2 (仅辅助工具，无MinGW编译依赖)
       uses: msys2/setup-msys2@v2
       with:
@@ -62,277 +67,302 @@ jobs:
           mingw-w64-x86_64-yasm
           flex
           bison
-      
-    # 修复2：MSVC环境明确初始化（指定版本+工具集）
+
+    # 优化2：MSVC环境初始化优化（自动识别VS版本，避免硬编码）
     - name: Setup Visual Studio Environment (纯MSVC核心环境)
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: x64
         vsversion: 2022
-        # toolset: latest  # 明确VS2022工具集版本，避免"latest"找不到目录
         spectre: false
-        
-    # 修复3：MSVC编译依赖缓存（nasm/cmake）
-    - name: Cache MSVC编译依赖
+
+    # 优化3：MSVC编译依赖缓存与安装优化
+    - name: Cache MSVC编译依赖 (nasm/cmake)
       id: cache-msvc-deps
       uses: actions/cache@v4
       with:
         path: |
           C:\Program Files\NASM
           C:\Program Files\CMake
-        key: msvc-deps-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
+        key: ${{ env.CACHE_KEY_BASE }}-msvc-deps-nasm-cmake
         restore-keys: |
-          msvc-deps-${{ runner.os }}-
-          
-    - name: Install MSVC编译依赖
+          ${{ env.CACHE_KEY_BASE }}-msvc-deps-
+
+    - name: Install MSVC编译依赖 (nasm/cmake)
       if: steps.cache-msvc-deps.outputs.cache-hit != 'true'
       run: |
-        choco install nasm -y --no-progress
-        choco install cmake -y --no-progress --install-arguments 'ADD_CMAKE_TO_PATH=System'
-        refreshenv  # 刷新环境变量，确保nasm/cmake可用
-        
-    # ========== x264 纯MSVC编译 ==========
+        # 使用choco安装，并重定向输出减少日志冗余
+        choco install nasm -y --no-progress | Out-Null
+        choco install cmake -y --no-progress --install-arguments 'ADD_CMAKE_TO_PATH=System' | Out-Null
+        # 刷新环境变量
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        # 验证安装
+        nasm --version
+        cmake --version
+
+    # ========== x264 纯MSVC编译（可选） ==========
     - name: Cache x264 Source
+      if: env.ENABLE_X264 == 'true'
       id: cache-x264-source
       uses: actions/cache@v4
       with:
-        path: ${{ env.WORKSPACE }}\x264
-        key: x264-source-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
+        path: ${{ env.WORKSPACE }}/x264
+        key: ${{ env.CACHE_KEY_BASE }}-x264-source-latest
         restore-keys: |
-          x264-source-${{ runner.os }}-
-          
+          ${{ env.CACHE_KEY_BASE }}-x264-source-
+
     - name: Clone x264 Source
-      if: steps.cache-x264-source.outputs.cache-hit != 'true'
-      shell: cmd
+      if: env.ENABLE_X264 == 'true' && steps.cache-x264-source.outputs.cache-hit != 'true'
       run: |
-        cd %WORKSPACE%
-        rmdir /s /q x264 2>nul || true
-        git clone --depth=1 https://code.videolan.org/videolan/x264.git x264
-        cd x264 && git rev-parse --short HEAD && cd ..
-        
+        # 清理旧目录
+        if (Test-Path -Path $env:X264_SOURCE) { Remove-Item -Path $env:X264_SOURCE -Recurse -Force }
+        git clone --depth=1 https://code.videolan.org/videolan/x264.git ${{ env.WORKSPACE }}/x264
+        # 输出提交哈希
+        Push-Location ${{ env.WORKSPACE }}/x264
+        git rev-parse --short HEAD
+        Pop-Location
+
     - name: Cache x264 Build
+      if: env.ENABLE_X264 == 'true'
       id: cache-x264-build
       uses: actions/cache@v4
       with:
         path: ${{ env.X264_INSTALL }}
-        key: x264-build-msvc-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
+        key: ${{ env.CACHE_KEY_BASE }}-x264-build-msvc
         restore-keys: |
-          x264-build-msvc-${{ runner.os }}-
-          
-    # 暂时跳过x264编译（先解决FFmpeg本身的MSVC编译问题）
+          ${{ env.CACHE_KEY_BASE }}-x264-build-
+
     - name: Skip x264 Build (临时禁用)
-      shell: cmd
+      if: env.ENABLE_X264 == 'false'
       run: |
-        echo 暂时跳过x264编译，专注于FFmpeg本身的MSVC编译问题
-        
+        Write-Host "提示：当前禁用x264编译，如需启用请将env.ENABLE_X264改为true"
+
     # ========== FFmpeg 纯MSVC编译 ==========
     - name: Cache FFmpeg Source
       id: cache-ffmpeg-source
       uses: actions/cache@v4
       with:
-        path: ${{ env.WORKSPACE }}\ffmpeg
-        key: ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
+        path: ${{ env.WORKSPACE }}/ffmpeg
+        # 缓存键与FFmpeg版本绑定，而非工作流文件
+        key: ${{ env.CACHE_KEY_BASE }}-ffmpeg-source-${{ env.FFPEG_VERSION }}
         restore-keys: |
-          ffmpeg-source-n${{ env.FFPEG_VERSION }}-${{ runner.os }}-
-          
-    - name: Clone FFmpeg Source 
+          ${{ env.CACHE_KEY_BASE }}-ffmpeg-source-
+
+    - name: Clone FFmpeg Source
       if: steps.cache-ffmpeg-source.outputs.cache-hit != 'true'
-      shell: cmd
       run: |
-        cd %WORKSPACE%
-        rmdir /s /q ffmpeg 2>nul || true
-        git clone --depth=1 --branch=n%FFPEG_VERSION% https://github.com/FFmpeg/FFmpeg.git ffmpeg
-        cd ffmpeg && git rev-parse --short HEAD && cd ..
-        
-    # 保留：修复libm.h数学函数定义（MSVC兼容）
-    - name: Patch FFmpeg libm.h
+        # 清理旧目录
+        if (Test-Path -Path ${{ env.WORKSPACE }}/ffmpeg) { Remove-Item -Path ${{ env.WORKSPACE }}/ffmpeg -Recurse -Force }
+        # 克隆指定版本的FFmpeg
+        git clone --depth=1 --branch=n${{ env.FFPEG_VERSION }} https://github.com/FFmpeg/FFmpeg.git ${{ env.WORKSPACE }}/ffmpeg
+        # 输出提交哈希
+        Push-Location ${{ env.WORKSPACE }}/ffmpeg
+        git rev-parse --short HEAD
+        Pop-Location
+
+    # 优化4：FFmpeg libm.h补丁优化（更优雅的sed处理）
+    - name: Patch FFmpeg libm.h (MSVC兼容)
       shell: msys2 {0}
       run: |
         cd $WORKSPACE/ffmpeg/libavutil
+        # 备份原文件
         cp libm.h libm.h.bak
-        sed -i 's/#if !HAVE_/#if 0 \/\/ disabled for MSVC - #if !HAVE_/g' libm.h
-        sed -i 's/#elif !HAVE_/#elif 0 \/\/ disabled for MSVC - #elif !HAVE_/g' libm.h
-        cat libm.h | grep -E "#if 0.*HAVE_" | head -5
-        
+        # 禁用HAVE_相关的条件编译，解决MSVC数学函数问题
+        sed -i 's/^#if !HAVE_/#if 0 \/\/ disabled for MSVC - #if !HAVE_/g' libm.h
+        sed -i 's/^#elif !HAVE_/#elif 0 \/\/ disabled for MSVC - #elif !HAVE_/g' libm.h
+        # 验证补丁效果
+        grep -E "#if 0.*HAVE_" libm.h | head -5
+
     - name: Cache FFmpeg Build
       id: cache-ffmpeg-build
       uses: actions/cache@v4
       with:
         path: ${{ env.FFMPEG_INSTALL }}
-        key: ffmpeg-build-n${{ env.FFPEG_VERSION }}-msvc-${{ runner.os }}-${{ hashFiles(env.CACHE_HASH_FILE) }}
+        key: ${{ env.CACHE_KEY_BASE }}-ffmpeg-build-${{ env.FFPEG_VERSION }}-msvc
         restore-keys: |
-          ffmpeg-build-n${{ env.FFPEG_VERSION }}-msvc-${{ runner.os }}-
-          
-    # 核心修复：FFmpeg纯MSVC编译（cl.exe/link.exe）
+          ${{ env.CACHE_KEY_BASE }}-ffmpeg-build-
+
+    # 优化5：FFmpeg纯MSVC编译逻辑优化（解决路径、环境变量、编译失败排查问题）
     - name: Build FFmpeg with MSVC (纯MSVC工具链)
       if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
-      shell: cmd
       run: |
-        cd %WORKSPACE%\ffmpeg
-        del ffbuild\config.mak 2>nul || true
-        
-        :: 纯MSVC环境变量（指定cl/link/lib等MSVC工具）
-        set CC=cl
-        set CXX=cl
-        set LD=link
-        set AR=lib
-        set RANLIB=echo
-        set STRIP=echo
-        
-        :: 确保bash能识别MSVC工具（重要：直接在bash命令中传递环境变量）
-        set BASH_ENV="CC=cl CXX=cl LD=link AR=lib"
-        
-        :: 暂时不使用x264，先解决FFmpeg本身的MSVC编译问题
-        echo 暂时不使用x264，专注于FFmpeg本身的MSVC编译问题
-        
-        :: 手动刷新MSVC环境（确保工具链生效）
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-        
-        :: 验证编译器环境
-        echo 验证编译器环境:
-        where cl
-        cl 2>&1 | findstr /C:"Microsoft" >nul && echo MSVC编译器已正确设置 || echo MSVC编译器设置失败
-        
-        :: 显示当前环境变量
-        echo PATH=%PATH%
-        echo INCLUDE=%INCLUDE%
-        echo LIB=%LIB%
-        
-        :: FFmpeg Configure（纯MSVC参数，无MinGW/cross-compile，暂时不使用x264）
-        :: 使用bash来执行configure脚本，但在MSVC环境中
-        :: 显式传递所有环境变量给bash
-        :: 修复：使用更保守的配置，避免启用x264编码器（因为x264未编译）
-        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --disable-everything --enable-avcodec --enable-avformat --enable-avutil --enable-swresample --enable-swscale --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --disable-avdevice --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
-        
-        :: 检查配置是否成功
-        if not exist ffbuild\config.mak (
-          echo ERROR: Configure failed - config.mak not found
-          dir ffbuild
-          echo "显示配置日志的最后50行以帮助诊断问题:"
-          powershell -Command "Get-Content ffbuild\config.log | Select-Object -Last 50"
-          exit 1
-        )
-        
-        :: 检查config.mak文件内容，修复可能的语法错误
-        echo 检查config.mak文件前10行内容：
-        powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 10"
-        
-        :: 修复：简化显示和修复config.mak文件的方法
-        echo 显示config.mak文件前5行内容：
-        for /f "tokens=*" %%i in ('findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"') do echo %%i
-        
-        :: 使用CMD原生命令修复config.mak文件格式问题
-        echo 修复config.mak文件格式问题：
-        :: 创建临时修复脚本
-        echo @echo off > fix_config.bat
-        echo setlocal enabledelayedexpansion >> fix_config.bat
-        echo set "input=ffbuild\config.mak" >> fix_config.bat
-        echo set "output=ffbuild\config_fixed.mak" >> fix_config.bat
-        echo for /f "usebackq tokens=*" %%%%i in ^("%%input%%"^") do ^(
-        echo   set "line=%%%%i" >> fix_config.bat
-        echo   echo !line! >> fix_config.bat
-        echo ^) ^> "%%output%%" >> fix_config.bat
-        call fix_config.bat
-        move /Y ffbuild\config_fixed.mak ffbuild\config.mak
-        
-        :: 再次验证修复后的文件
-        echo 修复后的config.mak文件前5行：
-        for /f "tokens=*" %%i in ('findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"') do echo %%i
-        
-        :: MSVC编译+安装（避免awk语法错误）
-        nmake || (
-          echo 标准编译失败，尝试禁用问题组件后重新编译...
-          nmake clean
-          del ffbuild\config.mak 2>nul || true
-          
-          :: 使用更保守的配置重新编译（最小配置）
-          bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --disable-everything --enable-avutil --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
-          
-          :: 再次检查并修复config.mak文件（使用CMD原生命令）
-          echo 检查并修复config.mak文件格式问题：
-          :: 创建临时修复脚本
-          echo @echo off > fix_config.bat
-          echo setlocal enabledelayedexpansion >> fix_config.bat
-          echo set "input=ffbuild\config.mak" >> fix_config.bat
-          echo set "output=ffbuild\config_fixed.mak" >> fix_config.bat
-          echo for /f "usebackq tokens=*" %%%%i in ^("%%input%%"^") do ^(
-          echo   set "line=%%%%i" >> fix_config.bat
-          echo   echo !line! >> fix_config.bat
-          echo ^) ^> "%%output%%" >> fix_config.bat
-          call fix_config.bat
-          move /Y ffbuild\config_fixed.mak ffbuild\config.mak
-          
-          :: 验证修复后的文件
-          echo 修复后的config.mak文件前5行：
-          for /f "tokens=*" %%i in ('findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"') do echo %%i
-          
-          :: 使用nmake编译（避免make在Windows下的问题）
-          nmake
-        )
+        Push-Location ${{ env.WORKSPACE }}/ffmpeg
+
+        # 清理旧配置
+        if (Test-Path -Path ffbuild/config.mak) { Remove-Item -Path ffbuild/config.mak -Force }
+
+        # 设置MSVC工具链环境变量（统一使用powershell的环境变量传递）
+        $env:CC = "cl"
+        $env:CXX = "cl"
+        $env:LD = "link"
+        $env:AR = "lib"
+        $env:RANLIB = "echo"
+        $env:STRIP = "echo"
+
+        # 验证MSVC编译器
+        Write-Host "验证MSVC编译器环境："
+        where.exe cl
+        $clVersion = cl 2>&1 | Select-String "Microsoft"
+        if ($clVersion) {
+            Write-Host "MSVC编译器已正确设置：$clVersion"
+        } else {
+            Write-Error "MSVC编译器设置失败"
+            exit 1
+        }
+
+        # 转换路径为bash可识别的格式（正斜杠）
+        $ffmpegInstall = $env:FFMPEG_INSTALL -replace "\\", "/"
+
+        # FFmpeg Configure（纯MSVC参数，最小配置）
+        Write-Host "开始配置FFmpeg..."
+        bash -c "
+            export CC=cl
+            export CXX=cl
+            export LD=link
+            export AR=lib
+            ./configure \
+                --prefix='$ffmpegInstall' \
+                --target-os=win32 \
+                --arch=x86_64 \
+                --toolchain=msvc \
+                --disable-everything \
+                --enable-avcodec \
+                --enable-avformat \
+                --enable-avutil \
+                --enable-swresample \
+                --enable-swscale \
+                --enable-shared \
+                --disable-static \
+                --disable-programs \
+                --disable-doc \
+                --disable-asm \
+                --disable-avdevice \
+                --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'
+        "
+
+        # 检查配置是否成功
+        if (-not (Test-Path -Path ffbuild/config.mak)) {
+            Write-Error "配置失败：未找到ffbuild/config.mak"
+            Write-Host "显示配置日志最后50行："
+            Get-Content ffbuild/config.log | Select-Object -Last 50
+            exit 1
+        }
+
+        # 编译FFmpeg
+        Write-Host "开始编译FFmpeg..."
+        nmake
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "FFmpeg编译失败，尝试最小配置重新编译..."
+            # 清理后重新配置（仅保留avutil）
+            nmake clean
+            Remove-Item -Path ffbuild/config.mak -Force
+            bash -c "
+                export CC=cl
+                export CXX=cl
+                export LD=link
+                export AR=lib
+                ./configure \
+                    --prefix='$ffmpegInstall' \
+                    --target-os=win32 \
+                    --arch=x86_64 \
+                    --toolchain=msvc \
+                    --disable-everything \
+                    --enable-avutil \
+                    --enable-shared \
+                    --disable-static \
+                    --disable-programs \
+                    --disable-doc \
+                    --disable-asm \
+                    --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'
+            "
+            # 重新编译
+            nmake
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "FFmpeg重新编译仍失败"
+                exit 1
+            }
+        }
+
+        # 安装FFmpeg
+        Write-Host "开始安装FFmpeg..."
         nmake install
-        
-    # ========== 产物打包/上传/发布 ==========
+
+        Pop-Location
+
+    # ========== 产物处理 ==========
     - name: Package Build Artifacts
-      shell: cmd
       run: |
-        mkdir %WORKSPACE%\ffmpeg-build-output\bin 2>nul || true
-        mkdir %WORKSPACE%\ffmpeg-build-output\lib 2>nul || true
-        mkdir %WORKSPACE%\ffmpeg-build-output\include 2>nul || true
-        mkdir %WORKSPACE%\ffmpeg-build-output\licenses 2>nul || true
-        
-        :: 复制FFmpeg MSVC产物
-        copy /Y %FFMPEG_INSTALL%\bin\*.dll %WORKSPACE%\ffmpeg-build-output\bin\
-        copy /Y %FFMPEG_INSTALL%\lib\*.lib %WORKSPACE%\ffmpeg-build-output\lib\
-        xcopy /E /Y %FFMPEG_INSTALL%\include\* %WORKSPACE%\ffmpeg-build-output\include\
-        
-        :: 暂时不复制x264产物（已禁用x264）
-        echo 暂时不复制x264产物
-        
-        :: 复制许可证（仅FFmpeg）
-        copy /Y %WORKSPACE%\ffmpeg\LICENSE.md %WORKSPACE%\ffmpeg-build-output\licenses\FFmpeg.txt 2>nul || true
-        echo 暂时不复制x264许可证
-        
-        :: 验证MSVC产物
-        dir %WORKSPACE%\ffmpeg-build-output\bin
-        dir %WORKSPACE%\ffmpeg-build-output\lib
-        
+        # 创建输出目录
+        $outputDir = "${{ env.WORKSPACE }}/ffmpeg-build-output"
+        New-Item -Path $outputDir -ItemType Directory -Force | Out-Null
+        New-Item -Path "$outputDir/bin" -ItemType Directory -Force | Out-Null
+        New-Item -Path "$outputDir/lib" -ItemType Directory -Force | Out-Null
+        New-Item -Path "$outputDir/include" -ItemType Directory -Force | Out-Null
+        New-Item -Path "$outputDir/licenses" -ItemType Directory -Force | Out-Null
+
+        # 复制FFmpeg产物
+        Copy-Item -Path "${{ env.FFMPEG_INSTALL }}/bin/*.dll" -Destination "$outputDir/bin" -Force
+        Copy-Item -Path "${{ env.FFMPEG_INSTALL }}/lib/*.lib" -Destination "$outputDir/lib" -Force
+        Copy-Item -Path "${{ env.FFMPEG_INSTALL }}/include/*" -Destination "$outputDir/include" -Recurse -Force
+
+        # 复制许可证
+        if (Test-Path -Path "${{ env.WORKSPACE }}/ffmpeg/LICENSE.md") {
+            Copy-Item -Path "${{ env.WORKSPACE }}/ffmpeg/LICENSE.md" -Destination "$outputDir/licenses/FFmpeg.txt" -Force
+        }
+
+        # 验证产物
+        Write-Host "验证编译产物："
+        Get-ChildItem -Path "$outputDir/bin"
+        Get-ChildItem -Path "$outputDir/lib"
+
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ffmpeg-windows-x64-shared-n${{ env.FFPEG_VERSION }}
-        path: ${{ env.WORKSPACE }}\ffmpeg-build-output\
+        name: ffmpeg-windows-x64-shared-${{ env.FFPEG_VERSION }}
+        path: ${{ env.WORKSPACE }}/ffmpeg-build-output/
         retention-days: 90
-        
+
     - name: Package as ZIP
-      shell: powershell
       run: |
-        Compress-Archive -Path ${{ env.WORKSPACE }}\ffmpeg-build-output\* -DestinationPath ${{ env.WORKSPACE }}\ffmpeg-windows-x64-shared-n${{ env.FFPEG_VERSION }}.zip -Force
-        
+        $zipPath = "${{ env.WORKSPACE }}/ffmpeg-windows-x64-shared-${{ env.FFPEG_VERSION }}.zip"
+        Compress-Archive -Path "${{ env.WORKSPACE }}/ffmpeg-build-output/*" -DestinationPath $zipPath -Force
+        # 验证ZIP文件
+        if (Test-Path -Path $zipPath) {
+            Write-Host "ZIP包已生成：$zipPath"
+        } else {
+            Write-Error "ZIP包生成失败"
+            exit 1
+        }
+
+    # 优化6：Release发布逻辑优化（匹配tag格式，避免冲突）
     - name: Create Release
       id: create_release
-      if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: n${{ env.FFPEG_VERSION }}-${{ github.run_number }}
-        name: FFmpeg Windows Build v${{ env.FFPEG_VERSION }}-${{ github.run_number }}
+        # 若为tag触发，使用原tag；否则使用版本+运行号
+        tag_name: ${{ github.ref_name != '' ? github.ref_name : 'v' + env.FFPEG_VERSION + '-' + github.run_number }}
+        name: FFmpeg Windows MSVC Build ${{ github.ref_name != '' ? github.ref_name : 'v' + env.FFPEG_VERSION + '-' + github.run_number }}
         draft: false
         prerelease: false
-        files: ${{ env.WORKSPACE }}\ffmpeg-windows-x64-shared-n${{ env.FFPEG_VERSION }}.zip
+        files: ${{ env.WORKSPACE }}/ffmpeg-windows-x64-shared-${{ env.FFPEG_VERSION }}.zip
         body: |
-          FFmpeg ${{ env.FFPEG_VERSION }} Windows build with:
-          - MSVC 2022 (v14.38) toolchain (x64)
-          - Shared libraries (DLL + MSVC import LIB)
-          - Headers for development
-          - x264 support temporarily disabled
+          FFmpeg ${{ env.FFPEG_VERSION }} Windows x64 Build (MSVC 2022)
           
-          ## Files included:
-          - Binaries (MSVC-compiled DLLs)
-          - MSVC import libraries (.lib)
-          - Header files
-          - Licenses
+          ## 编译信息
+          - 工具链：MSVC 2022 (v14.38) x64
+          - 产物类型：共享库（DLL + MSVC导入库LIB）
+          - x264支持：${{ env.ENABLE_X264 == 'true' ? '已启用' : '临时禁用' }}
+          - 编译配置：最小化配置（avcodec/avformat/avutil/swresample/swscale）
           
-          ## Version Info
-          - Build Number: ${{ github.run_number }}
-          - Commit: ${{ github.sha }}
+          ## 包含文件
+          - 二进制文件：bin/*.dll
+          - 导入库：lib/*.lib
+          - 头文件：include/
+          - 许可证：licenses/
+          
+          ## 构建信息
+          - 构建编号：${{ github.run_number }}
+          - 提交哈希：${{ github.sha }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
