@@ -166,47 +166,50 @@ jobs:
     # 核心修复：FFmpeg纯MSVC编译（cl.exe/link.exe）
     - name: Build FFmpeg with MSVC (纯MSVC工具链)
       if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
-      shell: msys2 {0}
+      shell: cmd
       run: |
-        cd "$WORKSPACE/ffmpeg"
-        rm -f ffbuild/config.mak
+        cd %WORKSPACE%\ffmpeg
+        del ffbuild\config.mak 2>nul || true
         
-        # 导入MSVC环境变量（关键步骤：MSYS2环境需要正确继承MSVC工具链）
-        source /c/Program\ Files/Microsoft\ Visual\ Studio/2022/Enterprise/VC/Auxiliary/Build/vcvarsall.bat x64 >/dev/null 2>&1 || true
+        :: 纯MSVC环境变量（指定cl/link/lib等MSVC工具）
+        set CC=cl
+        set CXX=cl
+        set LD=link
+        set AR=lib
+        set RANLIB=echo
+        set STRIP=echo
         
-        # 纯MSVC环境变量（指定cl/link/lib等MSVC工具）
-        export CC=cl
-        export CXX=cl
-        export LD=link
-        export AR=lib
-        export RANLIB=echo
-        export STRIP=echo
-        
-        # 暂时不使用x264，先解决FFmpeg本身的MSVC编译问题
+        :: 暂时不使用x264，先解决FFmpeg本身的MSVC编译问题
         echo 暂时不使用x264，专注于FFmpeg本身的MSVC编译问题
         
-        # FFmpeg Configure（纯MSVC参数，无MinGW/cross-compile，暂时不使用x264）
-        ./configure \
-          --prefix="$FFMPEG_INSTALL" \
-          --target-os=win32 \
-          --arch=x86_64 \
-          --toolchain=msvc \
-          --enable-shared \
-          --disable-static \
-          --disable-programs \
-          --disable-doc \
-          --disable-asm \
-          --extra-cflags="-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1"
+        :: 手动刷新MSVC环境（确保工具链生效）
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
         
-        # 检查配置是否成功
-        if [ ! -f ffbuild/config.mak ]; then
+        :: 验证编译器环境
+        echo 验证编译器环境:
+        where cl
+        cl 2>&1 | findstr /C:"Microsoft" >nul && echo MSVC编译器已正确设置 || echo MSVC编译器设置失败
+        
+        :: 显示当前环境变量
+        echo PATH=%PATH%
+        echo INCLUDE=%INCLUDE%
+        echo LIB=%LIB%
+        
+        :: FFmpeg Configure（纯MSVC参数，无MinGW/cross-compile，暂时不使用x264）
+        :: 使用bash来执行configure脚本，但在MSVC环境中
+        bash -c "./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
+        
+        :: 检查配置是否成功
+        if not exist ffbuild\config.mak (
           echo ERROR: Configure failed - config.mak not found
-          ls -la ffbuild/
+          dir ffbuild
+          echo "显示配置日志的最后50行以帮助诊断问题:"
+          powershell -Command "Get-Content ffbuild\config.log | Select-Object -Last 50"
           exit 1
-        fi
+        )
         
-        # 使用MSYS2的make进行编译，但实际使用MSVC工具链
-        make -j$(nproc)
+        :: MSVC编译+安装
+        make -j %NUMBER_OF_PROCESSORS%
         make install
         
     # ========== 产物打包/上传/发布 ==========
