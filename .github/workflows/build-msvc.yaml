@@ -201,7 +201,8 @@ jobs:
         :: FFmpeg Configure（纯MSVC参数，无MinGW/cross-compile，暂时不使用x264）
         :: 使用bash来执行configure脚本，但在MSVC环境中
         :: 显式传递所有环境变量给bash
-        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
+        :: 修复：使用更保守的配置，避免启用x264编码器（因为x264未编译）
+        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --disable-everything --enable-avcodec --enable-avformat --enable-avutil --enable-swresample --enable-swscale --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --disable-avdevice --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
         
         :: 检查配置是否成功
         if not exist ffbuild\config.mak (
@@ -212,14 +213,40 @@ jobs:
           exit 1
         )
         
+        :: 检查config.mak文件内容，修复可能的语法错误
+        echo 检查config.mak文件前10行内容：
+        powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 10"
+        
+        :: 修复：直接检查并显示config.mak前5行内容，以识别问题
+        echo 显示config.mak文件前5行内容：
+        powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 5 | ForEach-Object { \"Line $($_.ReadCount): $_\" }"
+        
+        :: 修复：使用更简单的方法处理config.mak文件，确保格式正确
+        echo 修复config.mak文件格式问题：
+        powershell -Command "$content = Get-Content ffbuild\config.mak; $content | ForEach-Object { if($_ -match '^(\w+)\s*=\s*(.*)$') { \"$($matches[1])=$($matches[2])\" } else { $_ } } | Set-Content ffbuild\config_fixed.mak"
+        move /Y ffbuild\config_fixed.mak ffbuild\config.mak
+        
+        :: 再次验证修复后的文件
+        echo 修复后的config.mak文件前5行：
+        powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 5 | ForEach-Object { \"Line $($_.ReadCount): $_\" }"
+        
         :: MSVC编译+安装（避免awk语法错误）
         nmake || (
           echo 标准编译失败，尝试禁用问题组件后重新编译...
-          make clean
+          nmake clean
           del ffbuild\config.mak 2>nul || true
           
-          :: 使用更保守的配置重新编译（禁用avdevice以避免awk问题）
-          bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --disable-avdevice --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
+          :: 使用更保守的配置重新编译（最小配置）
+          bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --disable-everything --enable-avutil --enable-shared --disable-static --disable-programs --disable-doc --disable-asm --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1'"
+          
+          :: 再次检查并修复config.mak文件（使用相同的方法）
+          echo 检查并修复config.mak文件格式问题：
+          powershell -Command "$content = Get-Content ffbuild\config.mak; $content | ForEach-Object { if($_ -match '^(\w+)\s*=\s*(.*)$') { \"$($matches[1])=$($matches[2])\" } else { $_ } } | Set-Content ffbuild\config_fixed.mak"
+          move /Y ffbuild\config_fixed.mak ffbuild\config.mak
+          
+          :: 验证修复后的文件
+          echo 修复后的config.mak文件前5行：
+          powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 5 | ForEach-Object { \"Line $($_.ReadCount): $_\" }"
           
           :: 使用nmake编译（避免make在Windows下的问题）
           nmake
