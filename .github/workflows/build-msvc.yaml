@@ -137,7 +137,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
         
         :: MSVC编译+安装（生成MSVC格式的.lib和.dll）
-        cmake --build . --config Release --target install -j %NUMBER_OF_PROCESSORS%
+        cmake --build . --config Release --target install
         
     # ========== FFmpeg 纯MSVC编译 ==========
     - name: Cache FFmpeg Source
