@@ -208,7 +208,7 @@ jobs:
           echo 跳过x264支持
         )
         
-        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --enable-gpl %X264_FLAGS% --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1 -D__asm__=__asm'"
+        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --enable-gpl %X264_FLAGS% --extra-cflags='-MD -DHAVE_LRINT=1 -DHAVE_LRINTF=1 -DHAVE_RINT=1 -DHAVE_ROUND=1 -DHAVE_TRUNC=1 -DHAVE_CBRT=1 -DHAVE_ERF=1' --disable-asm --disable-inline-asm"
         
         :: 检查配置是否成功
         if not exist ffbuild\config.mak (
@@ -218,6 +218,10 @@ jobs:
           powershell -Command "Get-Content ffbuild\config.log | Select-Object -Last 50"
           exit 1
         )
+        
+        :: 显示配置文件内容以诊断问题
+        echo 显示config.mak前几行:
+        powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 10"
         
         :: 编译FFmpeg (MSVC nmake 不支持 -j 参数)
         echo 正在编译FFmpeg...
