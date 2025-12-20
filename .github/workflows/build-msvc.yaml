@@ -218,7 +218,7 @@ jobs:
         
         # 创建config.h文件
         Write-Host "创建config.h文件..."
-        $configH = @"
+        @"
 /* FFmpeg MSVC Configuration Header */
 #ifndef FFMPEG_CONFIG_H
 #define FFMPEG_CONFIG_H
@@ -274,12 +274,11 @@ jobs:
 #define CONFIG_SMALL 0
 #define CONFIG_GPL ${{ github.event.inputs.build_x264 == 'true' && '1' || '0' }}
 #endif
-"@
-        $configH | Out-File -FilePath "ffbuild\config.h" -Encoding UTF8
+"@ | Out-File -FilePath "ffbuild\config.h" -Encoding UTF8
         
         # 创建完整的MSVC构建配置
         Write-Host "创建完整的MSVC构建配置..."
-        $configMak = @"
+        @"
 # FFmpeg MSVC Configuration - Direct Build
 PREFIX=$env:FFMPEG_INSTALL
 CC=cl
@@ -434,8 +433,7 @@ CONFIG_HTTP_PROTOCOL=no
 CONFIG_HTTPS_PROTOCOL=no
 CONFIG_TCP_PROTOCOL=no
 CONFIG_UDP_PROTOCOL=no
-"@
-        $configMak | Out-File -FilePath "ffbuild\config.mak" -Encoding UTF8
+"@ | Out-File -FilePath "ffbuild\config.mak" -Encoding UTF8
         
         Write-Host "跳过configure，直接使用预定义配置编译FFmpeg..."
         
