@@ -1,4 +1,4 @@
-name: Build FFmpeg with MSVC
+name: MSVC
 
 on:
   push:
@@ -62,7 +62,6 @@ jobs:
           mingw-w64-x86_64-yasm
           flex
           bison
-          mingw-w64-x86_64-winflexbison  # FFmpeg MSVC编译必需的语法解析工具
       
     # 修复2：MSVC环境明确初始化（指定版本+工具集）
     - name: Setup Visual Studio Environment (纯MSVC核心环境)
