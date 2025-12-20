@@ -218,7 +218,7 @@ jobs:
           echo 跳过x264支持
         )
         
-        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --enable-gpl %X264_FLAGS% --extra-cflags='-MD' --disable-asm --disable-inline-asm --disable-x86asm --disable-symver"
+        bash -c "CC=cl CXX=cl LD=link AR=lib ./configure --prefix='%FFMPEG_INSTALL%' --target-os=win32 --arch=x86_64 --toolchain=msvc --enable-shared --disable-static --disable-programs --disable-doc --enable-gpl %X264_FLAGS% --extra-cflags='-MD -D__asm__=' --disable-asm --disable-inline-asm --disable-x86asm --disable-symver --disable-optimizations"
         
         :: 检查配置是否成功
         if not exist ffbuild\config.mak (
