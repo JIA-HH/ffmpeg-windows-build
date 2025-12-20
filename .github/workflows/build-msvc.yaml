@@ -193,228 +193,282 @@ jobs:
     # FFmpeg 核心编译
     - name: Build FFmpeg with MSVC (纯MSVC工具链)
       if: steps.cache-ffmpeg-build.outputs.cache-hit != 'true'
-      shell: cmd
+      shell: powershell
       run: |
-        cd %WORKSPACE%\ffmpeg
-        del ffbuild\config.mak 2>nul || true
+        cd $env:WORKSPACE\ffmpeg
         
-        :: 验证MSVC环境
-        echo 验证编译器环境:
-        where cl
-        cl 2>&1 | findstr /C:"Microsoft" >nul && echo MSVC编译器已正确设置 || echo MSVC编译器设置失败
+        # 清理之前的配置
+        Remove-Item -Path "ffbuild\config.mak" -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "ffbuild\config.h" -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "config.log" -Force -ErrorAction SilentlyContinue
         
-        :: 显示关键环境变量
-        echo PATH=%PATH%
-        echo INCLUDE=%INCLUDE%
-        echo LIB=%LIB%
+        Write-Host "验证编译器环境:"
+        Get-Command cl -ErrorAction SilentlyContinue
+        if (Get-Command cl -ErrorAction SilentlyContinue) {
+            Write-Host "MSVC编译器已正确设置"
+        } else {
+            Write-Host "ERROR: MSVC编译器未找到"
+            exit 1
+        }
         
-        :: 直接创建完整的MSVC构建配置，跳过configure脚本
-        echo 创建完整的MSVC构建配置...
-        (
-            echo # FFmpeg MSVC Configuration - Direct Build
-            echo PREFIX=%FFMPEG_INSTALL%
-            echo CC=cl
-            echo CXX=cl  
-            echo LD=link
-            echo AR=lib
-            echo NM=nm
-            echo STRIP=strip
-            echo OBJCOPY=objcopy
-            echo OBJDUMP=objdump
-            echo LN=ln
-            echo AS=ml64
-            echo CPPFLAGS=
-            echo CFLAGS=-MD -D_ISOC99_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_USE_MATH_DEFINES -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_WARNINGS -D_WIN32_WINNT=0x0600 -nologo
-            echo CXXFLAGS=
-            echo ASFLAGS=
-            echo LDFLAGS=-nologo -DLL
-            echo SHFLAGS=-DLL
-            echo YASMFLAGS=
-            echo X86ASMFLAGS=
-            echo DEPFLAGS=
-            echo CMD_O=-Fo
-            echo CMD_OO=-Fo
-            echo CMD_C=-c
-            echo CMD_E=
-            echo CMD_EO=
-            echo LIBPREF=
-            echo LIBSUF=.lib
-            echo LIBNAME=
-            echo SLIBPREF=
-            echo SLIBSUF=.dll
-            echo EXESUF=.exe
-            echo LIB_INSTALL=%FFMPEG_INSTALL%/lib
-            echo BIN_INSTALL=%FFMPEG_INSTALL%/bin
-            echo INC_INSTALL=%FFMPEG_INSTALL%/include
-            echo DATA_INSTALL=%FFMPEG_INSTALL%/share
-            echo SHLIB_INSTALL=%FFMPEG_INSTALL%/bin
-            echo DOC_INSTALL=%FFMPEG_INSTALL%/share/doc
-            echo PROGS_INSTALL=%FFMPEG_INSTALL%/bin
-            echo MAN_INSTALL=%FFMPEG_INSTALL%/share/man
-            echo LOCALIDDIR=
-            echo PKGCONFIGDIR=%FFMPEG_INSTALL%/lib/pkgconfig
-            echo CONFIG_MAKEFILE=ffbuild/config.mak
-            echo CONFIG_H=ffbuild/config.h
-            echo ARCH=X86_64
-            echo SUBARCH=x86_64
-            echo TARGET_OS=WIN32
-            echo TOOLCHAIN=MSVC
-            echo SYSARCH=
-            echo SUFFIX=
-            echo HAVE_64BIT=yes
-            echo HAVE_BIGENDIAN=no
-            echo HAVE_FAST_UNALIGNED=no
-            echo HAVE_FAST_CLZ=no
-            echo HAVE_FAST_64BIT=no
-            echo HAVE_INLINE_ASM=no
-            echo HAVE_SYMVER=no
-            echo HAVE_X86ASM=no
-            echo HAVE_ALIGNED_STACK=no
-            echo HAVE_EBP_AVAILABLE=no
-            echo HAVE_FAST_CMOV=no
-            echo HAVE_LOCAL_ALIGNED=no
-            echo HAVE_MMX=no
-            echo HAVE_SSE=no
-            echo HAVE_SSE2=no
-            echo HAVE_SSE3=no
-            echo HAVE_SSSE3=no
-            echo HAVE_SSE4=no
-            echo HAVE_SSE42=no
-            echo HAVE_AVX=no
-            echo HAVE_AVX2=no
-            echo HAVE_AVX512=no
-            echo HAVE_ALTIVEC=no
-            echo HAVE_VSX=no
-            echo HAVE_POWER8=no
-            echo HAVE_ARMV5TE=no
-            echo HAVE_ARMV6=no
-            echo HAVE_ARMV6T2=no
-            echo HAVE_VFP=no
-            echo HAVE_NEON=no
-            echo HAVE_ARMV8=no
-            echo HAVE_MIPS=no
-            echo HAVE_MMI=no
-            echo HAVE_MSA=no
-            echo HAVE_MSA2=no
-            echo HAVE_LOONGSON=no
-            echo HAVE_RV=no
-            echo HAVE_RVV=no
-            echo HAVE_RISCV_VECTOR=no
-            echo HAVE_RISCV_ZVE32X=no
-            echo HAVE_RISCV_ZVE64D=no
-            echo HAVE_RISCV_ZVL128B=no
-            echo HAVE_RISCV_ZVL256B=no
-            echo HAVE_RISCV_ZVL512B=no
-            echo HAVE_RISCV_ZVL1024B=no
-            echo HAVE_RISCV_ZVL2048B=no
-            echo HAVE_RISCV_ZVL4096B=no
-            echo HAVE_RISCV_ZVL8192B=no
-            echo HAVE_RISCV_ZVL16384B=no
-            echo HAVE_RISCV_ZVL32768B=no
-            echo HAVE_RISCV_ZVL65536B=no
-            echo HAVE_RISCV_ZVL131072B=no
-            echo HAVE_RISCV_ZVL262144B=no
-            echo HAVE_RISCV_ZVL524288B=no
-            echo HAVE_RISCV_ZVL1048576B=no
-            echo HAVE_RISCV_ZVL2097152B=no
-            echo HAVE_RISCV_ZVL4194304B=no
-            echo HAVE_RISCV_ZVL8388608B=no
-            echo HAVE_RISCV_ZVL16777216B=no
-            echo HAVE_RISCV_ZVL33554432B=no
-            echo HAVE_RISCV_ZVL67108864B=no
-            echo HAVE_RISCV_ZVL134217728B=no
-            echo HAVE_RISCV_ZVL268435456B=no
-            echo HAVE_RISCV_ZVL536870912B=no
-            echo HAVE_RISCV_ZVL1073741824B=no
-            echo # 功能配置
-            echo CONFIG_SHARED=yes
-            echo CONFIG_STATIC=no
-            echo CONFIG_SMALL=no
-            echo CONFIG_RUNTIME_CPUDetect=no
-            echo CONFIG_SAFE_BITSTREAM_READER=yes
-            echo CONFIG_ICONV=no
-            echo CONFIG_RDFT=no
-            echo CONFIG_DCT=no
-            echo CONFIG_VIDSTAB=no
-            echo CONFIG_DEINTERLACE=no
-            echo CONFIG_FREI0R=no
-            echo CONFIG_LIBVIDSTAB=no
-            echo CONFIG_LIBX264=${{ github.event.inputs.build_x264 == 'true' && 'yes' || 'no' }}
-            echo CONFIG_AVCODEC=yes
-            echo CONFIG_AVFORMAT=yes
-            echo CONFIG_AVUTIL=yes
-            echo CONFIG_SWSCALE=yes
-            echo CONFIG_SWRESAMPLE=yes
-            echo CONFIG_AVFILTER=yes
-            echo CONFIG_POSTPROC=no
-            echo CONFIG_AVDEVICE=yes
-            echo CONFIG_FFMPEG=no
-            echo CONFIG_FFPLAY=no
-            echo CONFIG_FFPROBE=no
-            echo CONFIG_DOC=no
-            echo CONFIG_H264_DECODER=yes
-            echo CONFIG_H264_PARSER=yes
-            echo CONFIG_MOV_DEMUXER=yes
-            echo CONFIG_MP4_DEMUXER=yes
-            echo CONFIG_MATROSKA_DEMUXER=yes
-            echo CONFIG_AVI_DEMUXER=yes
-            echo CONFIG_FLV_DEMUXER=yes
-            echo CONFIG_MPEGTS_DEMUXER=yes
-            echo CONFIG_FILE_PROTOCOL=yes
-            echo CONFIG_HTTP_PROTOCOL=no
-            echo CONFIG_HTTPS_PROTOCOL=no
-            echo CONFIG_TCP_PROTOCOL=no
-            echo CONFIG_UDP_PROTOCOL=no
-        ) > ffbuild\config.mak
+        # 显示关键环境变量
+        Write-Host "PATH=$env:PATH"
+        Write-Host "INCLUDE=$env:INCLUDE"
+        Write-Host "LIB=$env:LIB"
         
-        :: 创建config.h文件
-        echo 创建config.h文件...
-        (
-            echo /* FFmpeg MSVC Configuration Header */
-            echo #define FFMPEG_CONFIGURATION ""
-            echo #define FFMPEG_LICENSE "LGPL version 2.1 or later"
-            echo #define THIS_YEAR 2024
-            echo #define CC_IDENT "msvc"
-            echo #define OS_NAME win32
-            echo #define HAVE_AV_CONFIG_H 1
-            echo #define CONFIG_PREFIX "%FFMPEG_INSTALL%"
-            echo #define CC_TYPE "msvc"
-            echo #define ARCH_X86_64 1
-            echo #define HAVE_INLINE_ASM 0
-            echo #define HAVE_SYMVER 0
-            echo #define HAVE_X86ASM 0
-            echo #define restrict __restrict
-            echo #define inline __inline
-            echo #define CONFIG_SHARED 1
-            echo #define CONFIG_STATIC 0
-        ) > ffbuild\config.h
+        # 创建config.h文件
+        Write-Host "创建config.h文件..."
+        $configH = @"
+/* FFmpeg MSVC Configuration Header */
+#ifndef FFMPEG_CONFIG_H
+#define FFMPEG_CONFIG_H
+#define FFMPEG_CONFIGURATION ""
+#define FFMPEG_LICENSE "LGPL version 2.1 or later"
+#define THIS_YEAR 2024
+#define CC_IDENT "msvc"
+#define OS_NAME win32
+#define HAVE_AV_CONFIG_H 1
+#define ARCH_X86_64 1
+#define HAVE_INLINE_ASM 0
+#define HAVE_SYMVER 0
+#define HAVE_X86ASM 0
+#define restrict __restrict
+#define inline __inline
+#define CONFIG_SHARED 1
+#define CONFIG_STATIC 0
+#define CONFIG_AVUTIL 1
+#define CONFIG_AVCODEC 1
+#define CONFIG_AVFORMAT 1
+#define CONFIG_SWSCALE 1
+#define CONFIG_SWRESAMPLE 1
+#define CONFIG_AVFILTER 1
+#define CONFIG_AVDEVICE 1
+#define CONFIG_POSTPROC 0
+#define CONFIG_FFMPEG 0
+#define CONFIG_FFPLAY 0
+#define CONFIG_FFPROBE 0
+#define CONFIG_DOC 0
+#define CONFIG_H264_DECODER 1
+#define CONFIG_H264_PARSER 1
+#define CONFIG_MOV_DEMUXER 1
+#define CONFIG_MP4_DEMUXER 1
+#define CONFIG_MATROSKA_DEMUXER 1
+#define CONFIG_AVI_DEMUXER 1
+#define CONFIG_FLV_DEMUXER 1
+#define CONFIG_MPEGTS_DEMUXER 1
+#define CONFIG_FILE_PROTOCOL 1
+#define CONFIG_HTTP_PROTOCOL 0
+#define CONFIG_HTTPS_PROTOCOL 0
+#define CONFIG_TCP_PROTOCOL 0
+#define CONFIG_UDP_PROTOCOL 0
+#define CONFIG_RUNTIME_CPUDetect 0
+#define CONFIG_SAFE_BITSTREAM_READER 1
+#define CONFIG_ICONV 0
+#define CONFIG_RDFT 0
+#define CONFIG_DCT 0
+#define CONFIG_VIDSTAB 0
+#define CONFIG_DEINTERLACE 0
+#define CONFIG_FREI0R 0
+#define CONFIG_LIBVIDSTAB 0
+#define CONFIG_LIBX264 ${{ github.event.inputs.build_x264 == 'true' && '1' || '0' }}
+#define CONFIG_SMALL 0
+#define CONFIG_GPL ${{ github.event.inputs.build_x264 == 'true' && '1' || '0' }}
+#endif
+"@
+        $configH | Out-File -FilePath "ffbuild\config.h" -Encoding UTF8
         
-        echo 跳过configure，直接使用预定义配置编译FFmpeg...
+        # 创建完整的MSVC构建配置
+        Write-Host "创建完整的MSVC构建配置..."
+        $configMak = @"
+# FFmpeg MSVC Configuration - Direct Build
+PREFIX=$env:FFMPEG_INSTALL
+CC=cl
+CXX=cl
+LD=link
+AR=lib
+NM=nm
+STRIP=strip
+OBJCOPY=objcopy
+OBJDUMP=objdump
+LN=ln
+AS=ml64
+CPPFLAGS=
+CFLAGS=-MD -D_ISOC99_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_USE_MATH_DEFINES -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_WARNINGS -D_WIN32_WINNT=0x0600 -nologo -O2
+CXXFLAGS=
+ASFLAGS=
+LDFLAGS=-nologo -DLL
+SHFLAGS=-DLL
+YASMFLAGS=
+X86ASMFLAGS=
+DEPFLAGS=
+CMD_O=-Fo
+CMD_OO=-Fo
+CMD_C=-c
+CMD_E=
+CMD_EO=
+LIBPREF=
+LIBSUF=.lib
+LIBNAME=
+SLIBPREF=
+SLIBSUF=.dll
+EXESUF=.exe
+LIB_INSTALL=$env:FFMPEG_INSTALL/lib
+BIN_INSTALL=$env:FFMPEG_INSTALL/bin
+INC_INSTALL=$env:FFMPEG_INSTALL/include
+DATA_INSTALL=$env:FFMPEG_INSTALL/share
+SHLIB_INSTALL=$env:FFMPEG_INSTALL/bin
+DOC_INSTALL=$env:FFMPEG_INSTALL/share/doc
+PROGS_INSTALL=$env:FFMPEG_INSTALL/bin
+MAN_INSTALL=$env:FFMPEG_INSTALL/share/man
+LOCALIDDIR=
+PKGCONFIGDIR=$env:FFMPEG_INSTALL/lib/pkgconfig
+CONFIG_MAKEFILE=ffbuild/config.mak
+CONFIG_H=ffbuild/config.h
+ARCH=X86_64
+SUBARCH=x86_64
+TARGET_OS=WIN32
+TOOLCHAIN=MSVC
+SYSARCH=
+SUFFIX=
+HAVE_64BIT=yes
+HAVE_BIGENDIAN=no
+HAVE_FAST_UNALIGNED=no
+HAVE_FAST_CLZ=no
+HAVE_FAST_64BIT=no
+HAVE_INLINE_ASM=no
+HAVE_SYMVER=no
+HAVE_X86ASM=no
+HAVE_ALIGNED_STACK=no
+HAVE_EBP_AVAILABLE=no
+HAVE_FAST_CMOV=no
+HAVE_LOCAL_ALIGNED=no
+HAVE_MMX=no
+HAVE_SSE=no
+HAVE_SSE2=no
+HAVE_SSE3=no
+HAVE_SSSE3=no
+HAVE_SSE4=no
+HAVE_SSE42=no
+HAVE_AVX=no
+HAVE_AVX2=no
+HAVE_AVX512=no
+HAVE_ALTIVEC=no
+HAVE_VSX=no
+HAVE_POWER8=no
+HAVE_ARMV5TE=no
+HAVE_ARMV6=no
+HAVE_ARMV6T2=no
+HAVE_VFP=no
+HAVE_NEON=no
+HAVE_ARMV8=no
+HAVE_MIPS=no
+HAVE_MMI=no
+HAVE_MSA=no
+HAVE_MSA2=no
+HAVE_LOONGSON=no
+HAVE_RV=no
+HAVE_RVV=no
+HAVE_RISCV_VECTOR=no
+HAVE_RISCV_ZVE32X=no
+HAVE_RISCV_ZVE64D=no
+HAVE_RISCV_ZVL128B=no
+HAVE_RISCV_ZVL256B=no
+HAVE_RISCV_ZVL512B=no
+HAVE_RISCV_ZVL1024B=no
+HAVE_RISCV_ZVL2048B=no
+HAVE_RISCV_ZVL4096B=no
+HAVE_RISCV_ZVL8192B=no
+HAVE_RISCV_ZVL16384B=no
+HAVE_RISCV_ZVL32768B=no
+HAVE_RISCV_ZVL65536B=no
+HAVE_RISCV_ZVL131072B=no
+HAVE_RISCV_ZVL262144B=no
+HAVE_RISCV_ZVL524288B=no
+HAVE_RISCV_ZVL1048576B=no
+HAVE_RISCV_ZVL2097152B=no
+HAVE_RISCV_ZVL4194304B=no
+HAVE_RISCV_ZVL8388608B=no
+HAVE_RISCV_ZVL16777216B=no
+HAVE_RISCV_ZVL33554432B=no
+HAVE_RISCV_ZVL67108864B=no
+HAVE_RISCV_ZVL134217728B=no
+HAVE_RISCV_ZVL268435456B=no
+HAVE_RISCV_ZVL536870912B=no
+HAVE_RISCV_ZVL1073741824B=no
+# 功能配置
+CONFIG_SHARED=yes
+CONFIG_STATIC=no
+CONFIG_SMALL=no
+CONFIG_RUNTIME_CPUDetect=no
+CONFIG_SAFE_BITSTREAM_READER=yes
+CONFIG_ICONV=no
+CONFIG_RDFT=no
+CONFIG_DCT=no
+CONFIG_VIDSTAB=no
+CONFIG_DEINTERLACE=no
+CONFIG_FREI0R=no
+CONFIG_LIBVIDSTAB=no
+CONFIG_LIBX264=${{ github.event.inputs.build_x264 == 'true' && 'yes' || 'no' }}
+CONFIG_AVCODEC=yes
+CONFIG_AVFORMAT=yes
+CONFIG_AVUTIL=yes
+CONFIG_SWSCALE=yes
+CONFIG_SWRESAMPLE=yes
+CONFIG_AVFILTER=yes
+CONFIG_POSTPROC=no
+CONFIG_AVDEVICE=yes
+CONFIG_FFMPEG=no
+CONFIG_FFPLAY=no
+CONFIG_FFPROBE=no
+CONFIG_DOC=no
+CONFIG_H264_DECODER=yes
+CONFIG_H264_PARSER=yes
+CONFIG_MOV_DEMUXER=yes
+CONFIG_MP4_DEMUXER=yes
+CONFIG_MATROSKA_DEMUXER=yes
+CONFIG_AVI_DEMUXER=yes
+CONFIG_FLV_DEMUXER=yes
+CONFIG_MPEGTS_DEMUXER=yes
+CONFIG_FILE_PROTOCOL=yes
+CONFIG_HTTP_PROTOCOL=no
+CONFIG_HTTPS_PROTOCOL=no
+CONFIG_TCP_PROTOCOL=no
+CONFIG_UDP_PROTOCOL=no
+"@
+        $configMak | Out-File -FilePath "ffbuild\config.mak" -Encoding UTF8
         
-        :: 检查配置是否成功
-        if not exist ffbuild\config.mak (
-          echo ERROR: Configure failed - config.mak not found
-          dir ffbuild
-          echo "显示配置日志的最后50行以帮助诊断问题:"
-          powershell -Command "Get-Content ffbuild\config.log | Select-Object -Last 50"
-          exit 1
-        )
+        Write-Host "跳过configure，直接使用预定义配置编译FFmpeg..."
         
-        :: 显示配置文件内容以诊断问题
-        echo 显示config.mak完整内容:
-        powershell -Command "Get-Content ffbuild\config.mak"
+        # 检查配置是否成功
+        if (-not (Test-Path "ffbuild\config.mak")) {
+            Write-Host "ERROR: Configure failed - config.mak not found"
+            Get-ChildItem -Path "ffbuild" -ErrorAction SilentlyContinue
+            exit 1
+        }
         
-        :: 编译FFmpeg (MSVC nmake 不支持 -j 参数)
-        echo 正在编译FFmpeg...
-        nmake || (
-          echo 编译失败，查看详细错误信息:
-          powershell -Command "Get-Content ffbuild\config.log | Select-Object -Last 100"
-          exit 1
-        )
+        # 显示配置文件内容
+        Write-Host "显示config.mak完整内容:"
+        Get-Content "ffbuild\config.mak"
         
-        :: 安装FFmpeg
-        echo 正在安装FFmpeg...
+        # 编译FFmpeg
+        Write-Host "正在编译FFmpeg..."
+        nmake
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "编译失败，退出码: $LASTEXITCODE"
+            if (Test-Path "ffbuild\config.log") {
+                Write-Host "配置日志最后50行:"
+                Get-Content "ffbuild\config.log" | Select-Object -Last 50
+            }
+            exit 1
+        }
+        
+        # 安装FFmpeg
+        Write-Host "正在安装FFmpeg..."
         nmake install
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "安装失败，退出码: $LASTEXITCODE"
+            exit 1
+        }
         
     # ========== 产物打包/上传/发布 ==========
     
