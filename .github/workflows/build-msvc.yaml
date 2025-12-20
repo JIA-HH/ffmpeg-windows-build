@@ -217,9 +217,9 @@ jobs:
         echo 检查config.mak文件前10行内容：
         powershell -Command "Get-Content ffbuild\config.mak | Select-Object -First 10"
         
-        :: 修复：使用CMD原生命令检查和修复config.mak文件
+        :: 修复：简化显示和修复config.mak文件的方法
         echo 显示config.mak文件前5行内容：
-        for /f "usebackq tokens=1* delims=:" %%a in (`findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"`) do echo Line %%a: %%b
+        for /f "tokens=*" %%i in ('findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"') do echo %%i
         
         :: 使用CMD原生命令修复config.mak文件格式问题
         echo 修复config.mak文件格式问题：
@@ -228,16 +228,16 @@ jobs:
         echo setlocal enabledelayedexpansion >> fix_config.bat
         echo set "input=ffbuild\config.mak" >> fix_config.bat
         echo set "output=ffbuild\config_fixed.mak" >> fix_config.bat
-        echo (for /f "usebackq tokens=*" %%a in ("%input%") do ( >> fix_config.bat
-        echo   set "line=%%a" >> fix_config.bat
+        echo for /f "usebackq tokens=*" %%%%i in ^("%%input%%"^") do ^(
+        echo   set "line=%%%%i" >> fix_config.bat
         echo   echo !line! >> fix_config.bat
-        echo )) ^> "%output%" >> fix_config.bat
+        echo ^) ^> "%%output%%" >> fix_config.bat
         call fix_config.bat
         move /Y ffbuild\config_fixed.mak ffbuild\config.mak
         
         :: 再次验证修复后的文件
         echo 修复后的config.mak文件前5行：
-        for /f "usebackq tokens=1* delims=:" %%a in (`findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"`) do echo Line %%a: %%b
+        for /f "tokens=*" %%i in ('findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"') do echo %%i
         
         :: MSVC编译+安装（避免awk语法错误）
         nmake || (
@@ -255,16 +255,16 @@ jobs:
           echo setlocal enabledelayedexpansion >> fix_config.bat
           echo set "input=ffbuild\config.mak" >> fix_config.bat
           echo set "output=ffbuild\config_fixed.mak" >> fix_config.bat
-          echo (for /f "usebackq tokens=*" %%a in ("%input%") do ( >> fix_config.bat
-          echo   set "line=%%a" >> fix_config.bat
+          echo for /f "usebackq tokens=*" %%%%i in ^("%%input%%"^") do ^(
+          echo   set "line=%%%%i" >> fix_config.bat
           echo   echo !line! >> fix_config.bat
-          echo )) ^> "%output%" >> fix_config.bat
+          echo ^) ^> "%%output%%" >> fix_config.bat
           call fix_config.bat
           move /Y ffbuild\config_fixed.mak ffbuild\config.mak
           
           :: 验证修复后的文件
           echo 修复后的config.mak文件前5行：
-          for /f "usebackq tokens=1* delims=:" %%a in (`findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"`) do echo Line %%a: %%b
+          for /f "tokens=*" %%i in ('findstr /n "^" ffbuild\config.mak ^| findstr /b "^[1-5]:"') do echo %%i
           
           :: 使用nmake编译（避免make在Windows下的问题）
           nmake
